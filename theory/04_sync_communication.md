@@ -348,18 +348,191 @@ public interface UserServiceClient { ... }
 
 ---
 
-## ❓ Câu hỏi Ôn tập
+## ❓ Câu hỏi Ôn tập & Trả lời chi tiết
 
-1. Phân biệt giao tiếp đồng bộ và bất đồng bộ. Khi nào dùng loại nào?
-2. `@LoadBalanced` RestTemplate khác gì RestTemplate thông thường?
-3. `restTemplate.exchange()` dùng khi nào? Ưu điểm gì?
-4. Annotation nào cần thiết để bật FeignClient trong Spring Boot?
-5. Viết FeignClient interface có method: GET /products/{id} trả về ProductDTO
-6. Fallback trong FeignClient là gì? Cách implement?
-7. So sánh RestTemplate vs FeignClient – khi nào nên dùng cái nào?
-8. `@RequestHeader`, `@RequestParam` trong FeignClient dùng như thế nào?
-9. Logger.Level.FULL trong Feign log những gì?
-10. Khi FeignClient nhận HTTP 404, mặc định sẽ throw exception gì?
+### 1. Phân biệt giao tiếp đồng bộ (Synchronous) và bất đồng bộ (Asynchronous). Khi nào dùng loại nào?
+- **Đồng bộ (Synchronous - Request/Response):**
+  - **Cơ chế:** Client/Service A gửi HTTP/gRPC request sang Service B và **phải đợi (block/await thread)** cho đến khi Service B xử lý xong và gửi response trả về.
+  - **Tính chất:** *Tight Coupling (Gắn kết chặt về thời gian)* — cả 2 service đều phải đang hoạt động (`UP`) cùng một thời điểm. Nếu Service B chậm hoặc lỗi, Service A sẽ bị nghẽn tài nguyên và dễ dẫn đến lỗi dây chuyền (*Cascading Failure*).
+  - **Công nghệ phổ biến:** REST (HTTP/JSON), gRPC.
+  - **Khi nào nên dùng:** Khi luồng nghiệp vụ bắt buộc cần kết quả phản hồi ngay lập tức để tiếp tục xử lý (ví dụ: Order Service gọi Payment Service để xác thực số dư trước khi hoàn tất đơn hàng).
+
+- **Bất đồng bộ (Asynchronous - Event-driven / Message-based):**
+  - **Cơ chế:** Client/Service A gửi message/event vào hàng đợi (Message Broker) rồi tiếp tục xử lý công việc khác ngay lập tức mà **không cần đợi** Service B phản hồi.
+  - **Tính chất:** *Loose Coupling (Tách rời về thời gian và không gian)* — nếu Service B đang bảo trì hoặc sập, message vẫn được lưu trữ an toàn trong Queue và sẽ được xử lý khi Service B khởi động lại.
+  - **Công nghệ phổ biến:** Apache Kafka, RabbitMQ, Amazon SQS.
+  - **Khi nào nên dùng:**
+    - Các tác vụ tốn nhiều thời gian xử lý: Gửi email/SMS thông báo, xuất báo cáo Excel, xử lý nén video.
+    - Đệm tải và xả tải (Rate-limiting, Buffering traffic) khi lượng truy cập tăng đột biến.
+    - Cập nhật dữ liệu phi tức thời (Eventual Consistency) qua Saga Pattern hoặc CDC.
+
+---
+
+### 2. `@LoadBalanced` RestTemplate khác gì RestTemplate thông thường?
+- **Phân giải URL qua Service Name:**
+  - *RestTemplate thông thường:* Bắt buộc phải truyền URL tĩnh kèm IP:Port cố định (ví dụ: `http://localhost:8081/products` hoặc `http://192.168.1.10:8081/products`). Nếu truyền tên service (`http://product-service/...`), Java sẽ ném lỗi `UnknownHostException` vì DNS không phân giải được.
+  - *RestTemplate `@LoadBalanced`:* Cho phép gọi API trực tiếp bằng **Logical Service Name** đã đăng ký trên Service Registry (Eureka/Consul), ví dụ: `http://product-service/products`.
+- **Cơ chế Client-Side Load Balancing:**
+  - `@LoadBalanced` can thiệp thông qua `LoadBalancerInterceptor`. Khi request được gửi đi, Spring Cloud LoadBalancer sẽ tra cứu Eureka để lấy danh sách toàn bộ instance đang hoạt động của service đích, sau đó áp dụng thuật toán cân bằng tải (mặc định là **Round Robin**) để tự chọn 1 instance phù hợp và thay thế tên service thành `IP:port` thực tế trước khi gửi gói tin.
+
+---
+
+### 3. `restTemplate.exchange()` dùng khi nào? Ưu điểm gì so với các method khác?
+- **Khi nào dùng:** Dùng khi cần kiểm soát toàn diện HTTP Request (Headers, Cookies, Method) và đọc trọn vẹn thông tin HTTP Response (Status Code, Response Headers, Body).
+- **Các ưu điểm vượt trội so với `getForObject()` hay `postForEntity()`:**
+  1. **Tùy biến Custom Headers & Authentication:** Cho phép gói headers vào `HttpEntity` để gửi token xác thực (ví dụ `Authorization: Bearer <token>`) hoặc `X-Trace-Id` — điều mà `getForObject` không hỗ trợ.
+  2. **Hỗ trợ mọi HTTP Method:** Linh hoạt thực thi bất kỳ phương thức nào: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD`.
+  3. **Hỗ trợ Generic Collection Type (`ParameterizedTypeReference`):** Tránh lỗi Type Erasure của Java khi map response dạng danh sách đối tượng:
+     ```java
+     ResponseEntity<List<ProductDTO>> response = restTemplate.exchange(
+         "http://product-service/products",
+         HttpMethod.GET,
+         null,
+         new ParameterizedTypeReference<List<ProductDTO>>() {}
+     );
+     ```
+  4. **Kiểm soát Response toàn diện:** Nhận về `ResponseEntity<T>` giúp kiểm tra chính xác HTTP Status Code (`200 OK`, `201 Created`, `204 No Content`) và Response Headers.
+
+---
+
+### 4. Annotation nào cần thiết để bật FeignClient trong Spring Boot? Đặt ở đâu?
+- **Annotation bắt buộc:** **`@EnableFeignClients`**
+- **Vị trí khai báo:** Thường được đặt trên **Main Application Class** (nơi có `@SpringBootApplication`) hoặc bất kỳ class nào được đánh dấu `@Configuration`.
+- **Lưu ý cấu hình package:** Nếu các Interface `@FeignClient` nằm ở một package độc lập không phải package con của Application, cần chỉ định rõ:
+  ```java
+  @SpringBootApplication
+  @EnableFeignClients(basePackages = "com.example.client")
+  public class OrderServiceApplication { ... }
+  ```
+
+---
+
+### 5. Viết FeignClient interface có method: GET /products/{id} trả về ProductDTO
+```java
+package com.example.client;
+
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+
+@FeignClient(
+    name = "product-service",                 // Tên service đăng ký trên Eureka
+    fallback = ProductServiceClientFallback.class // Class xử lý khi service gặp sự cố (optional)
+)
+public interface ProductServiceClient {
+
+    @GetMapping("/products/{id}")
+    ProductDTO getProductById(@PathVariable("id") Long id);
+}
+```
+*(Ghi chú: Luôn nên khai báo tường minh `@PathVariable("id") Long id` để tránh lỗi biên dịch khi cờ `-parameters` không được bật).*
+
+---
+
+### 6. Fallback trong FeignClient là gì? Cách implement?
+- **Khái niệm:** Fallback là cơ chế **chịu lỗi và suy thoái mềm (Fault Tolerance & Graceful Degradation)**. Khi microservice đích bị sập, timeout hoặc trả về lỗi HTTP 5xx, FeignClient sẽ chuyển hướng gọi sang phương thức Fallback để trả về dữ liệu mặc định hoặc dữ liệu từ cache, ngăn chặn sập dây chuyền toàn hệ thống.
+- **3 bước triển khai (Implementation):**
+  1. **Tạo Fallback Class:** Class này bắt buộc phải `implements` Interface FeignClient và được đánh dấu `@Component`:
+     ```java
+     @Component
+     public class ProductServiceClientFallback implements ProductServiceClient {
+         @Override
+         public ProductDTO getProductById(Long id) {
+             return new ProductDTO(id, "Dịch vụ sản phẩm tạm ngưng", 0.0);
+         }
+     }
+     ```
+  2. **Gắn Fallback vào Feign Interface:**
+     ```java
+     @FeignClient(name = "product-service", fallback = ProductServiceClientFallback.class)
+     public interface ProductServiceClient { ... }
+     ```
+     *(Hoặc dùng `fallbackFactory` nếu muốn truy cập nguyên nhân lỗi/Exception).*
+  3. **Bật Circuit Breaker cho OpenFeign trong `application.yml`:**
+     ```yaml
+     spring:
+       cloud:
+         openfeign:
+           circuitbreaker:
+             enabled: true
+     ```
+
+---
+
+### 7. So sánh RestTemplate vs FeignClient – khi nào nên dùng cái nào?
+| Tiêu chí | RestTemplate | FeignClient |
+|:---|:---|:---|
+| **Phong cách code** | Imperative (Thủ công, tường minh) | Declarative (Khai báo Interface) |
+| **Boilerplate Code** | Nhiều (tạo URL, HttpEntity, parse response) | Rất ít (Spring tự động sinh proxy implementation) |
+| **Tích hợp Eureka & LB** | Phải cấu hình `@LoadBalanced` | Tự động hoàn toàn qua thuộc tính `name` |
+| **Cơ chế Chịu lỗi** | Phải tự bọc `try/catch` hoặc cấu hình Resilience4j ngoài | Tích hợp sẵn Fallback (`fallback`, `fallbackFactory`) |
+| **Logging** | Phải tự cấu hình Interceptor phức tạp | Tích hợp sẵn qua `Logger.Level` |
+| **Trạng thái hỗ trợ** | Bị Deprecated từ Spring 5.0 (khuyên dùng `RestClient`/`WebClient`) | Được Spring Cloud hỗ trợ và phát triển tích cực |
+
+- **Khi nào nên dùng FeignClient:** Ưu tiên hàng đầu cho tất cả giao tiếp nội bộ giữa các microservice (Inter-service communication) trong hệ thống Spring Cloud vì tính tiện lợi, clean code và tích hợp sẵn Service Discovery, Load Balancing và Circuit Breaker.
+- **Khi nào nên dùng RestTemplate:** Dùng trong các dự án cũ (Legacy) hoặc khi cần can thiệp sâu, tùy biến cấu hình mạng phức tạp (custom SSL socket, kết nối proxy đặc thù, streaming file dung lượng lớn) hoặc gọi các API bên ngoài bên thứ 3 không thuộc Eureka.
+
+---
+
+### 8. `@RequestHeader`, `@RequestParam` trong FeignClient dùng như thế nào?
+- **Khác biệt góc nhìn:** Trong FeignClient, vai trò của chúng ta là **Client gửi request đi** (Outgoing Request), khác với Controller là Server nhận request đến (Incoming Request).
+- **`@RequestHeader`:** Dùng để **gán/đính kèm dữ liệu vào HTTP Request Header** gửi sang service đích.
+  - *Ví dụ:* Truyền token xác thực JWT hoặc Tracking ID:
+    ```java
+    @GetMapping("/users/profile")
+    UserDTO getProfile(@RequestHeader("Authorization") String token);
+    ```
+- **`@RequestParam`:** Dùng để **nối tham số vào Query String trên URL** (`?key=value`).
+  - *Ví dụ:* Tìm kiếm, phân trang và sắp xếp:
+    ```java
+    @GetMapping("/products/search")
+    List<ProductDTO> searchProducts(@RequestParam("keyword") String keyword,
+                                    @RequestParam("page") int page);
+    ```
+    *(URL sinh ra thực tế: `/products/search?keyword=laptop&page=0`)*.
+
+---
+
+### 9. Logger.Level.FULL trong Feign log những gì?
+- **Các mức độ Log trong Feign (`feign.Logger.Level`):**
+  - **`NONE`** *(Mặc định):* Không ghi bất kỳ log nào.
+  - **`BASIC`:** Chỉ ghi lại HTTP Method, URL, Response Status Code và Thời gian thực thi (Execution time).
+  - **`HEADERS`:** Bao gồm thông tin của `BASIC` cộng thêm toàn bộ **Request & Response Headers**.
+  - **`FULL`:** Ghi lại **TOÀN BỘ**: URL, Method, Headers, **Request Body, Response Body** và Metadata cho cả 2 chiều gửi và nhận.
+- **Cấu hình kích hoạt:**
+  ```java
+  @Bean
+  feign.Logger.Level feignLoggerLevel() {
+      return feign.Logger.Level.FULL;
+  }
+  ```
+  Và trong `application.yml` phải set mức log của package Feign thành `DEBUG`:
+  ```yaml
+  logging:
+    level:
+      com.example.client: DEBUG
+  ```
+- ⚠️ **Lưu ý thực tế:** Chỉ bật `FULL` trong môi trường Local/Development để debug. Không bật trên Production vì gây suy giảm hiệu năng I/O và có nguy cơ rò rỉ dữ liệu nhạy cảm (mật khẩu, thẻ tín dụng, token) ra log file.
+
+---
+
+### 10. Khi FeignClient nhận HTTP 404, mặc định sẽ throw exception gì?
+- **Exception mặc định:** Ném ra **`feign.FeignException.NotFound`** (lớp cha là **`feign.FeignException`**).
+- **Cơ chế:** Mặc định OpenFeign sử dụng `ErrorDecoder.Default`. Khi nhận bất kỳ mã trạng thái HTTP nào từ 400 trở lên:
+  - `400` ➔ ném `FeignException.BadRequest`
+  - `404` ➔ ném `FeignException.NotFound`
+  - `500` ➔ ném `FeignException.InternalServerError`
+- **Cách xử lý chuẩn:**
+  - *Cách 1 (Trả về null hoặc Optional thay vì throw):* Bật cờ `decode404` trong `application.yml`:
+    ```yaml
+    feign:
+      client:
+        config:
+          default:
+            decode404: true
+    ```
+  - *Cách 2 (Custom ErrorDecoder):* Viết class `implements ErrorDecoder` để bắt status 404 và ném ra Custom Business Exception (ví dụ: `ProductNotFoundException`) cho ExceptionHandler toàn cục xử lý.
+
 
 ---
 

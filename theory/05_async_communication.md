@@ -385,18 +385,144 @@ public class OrderController {
 
 ---
 
-## ❓ Câu hỏi Ôn tập
+## ❓ Câu hỏi Ôn tập & Trả lời chi tiết
 
-1. Tại sao cần giao tiếp bất đồng bộ? Liệt kê 3 ưu điểm so với REST
-2. Giải thích Kafka Topic, Partition, Offset, Consumer Group
-3. Nếu có 3 partitions và 5 consumers trong cùng 1 group, điều gì xảy ra?
-4. `auto-offset-reset: earliest` vs `latest` khác nhau thế nào?
-5. At-most-once, at-least-once, exactly-once delivery là gì?
-6. `@KafkaListener` annotation cần những parameter gì tối thiểu?
-7. `KafkaTemplate.send()` trả về gì? Xử lý thất bại như thế nào?
-8. Mono vs Flux khác nhau như thế nào?
-9. WebClient khác RestTemplate ở điểm gì? Khi nào nên dùng WebClient?
-10. Kafka Producer gửi message, nếu Consumer down thì message có bị mất không?
+### 1. Tại sao cần giao tiếp bất đồng bộ? Liệt kê 3 ưu điểm so với REST
+- **Vấn đề của REST đồng bộ trong Microservices:**
+  - **Nghẽn chuỗi gọi (Service Chain Latency):** Khi A gọi B, B gọi C, thời gian phản hồi là tổng thời gian của cả chuỗi. Nếu một service chậm, toàn bộ chuỗi bị nghẽn.
+  - **Lỗi dây chuyền (Cascading Failure):** Nếu downstream service (ví dụ Payment/Notification) bị sập, upstream service (Order) sẽ bị cạn kiệt tài nguyên (Thread Pool) và sập theo.
+  - **Gắn kết chặt (Tight Coupling):** Service gọi bắt buộc phải biết địa chỉ mạng/tên của service nhận.
+- **4 ưu điểm vượt trội của Message-driven (Kafka):**
+  1. **Loose Coupling (Tách rời các service):** Producer chỉ đẩy message/event vào Topic mà không cần biết Consumer là ai, địa chỉ ở đâu, hay có bao nhiêu Consumer đang lắng nghe.
+  2. **Non-blocking & High Performance:** Producer gửi message vào Kafka xong là tiếp tục phục vụ client khác ngay lập tức, không bị block thread chờ đợi.
+  3. **Fault Tolerance & Resilience (Khả năng chịu lỗi cao):** Nếu Consumer service bị sập hoặc bảo trì, message vẫn nằm an toàn trên Kafka Broker và sẽ được xử lý đầy đủ khi Consumer hồi phục, không làm mất dữ liệu đơn hàng.
+  4. **Traffic Spikes Buffering (Đệm tải & Xả tải):** Trong các dịp cao điểm (Flash Sale), Kafka đóng vai trò như một hồ chứa đệm, giúp Consumer đọc và xử lý từ từ theo đúng công suất cho phép mà không bị tràn bộ nhớ hay sập database.
+
+---
+
+### 2. Giải thích Kafka Topic, Partition, Offset, Consumer Group
+- **Topic:** Kênh/danh mục logic để chứa các message (tương đương với một Table trong cơ sở dữ liệu hoặc một Folder lưu trữ).
+- **Partition:** Đơn vị phân chia vật lý của một Topic. Một Topic có thể có nhiều Partitions nằm rải rác trên nhiều Broker khác nhau, cho phép Kafka phân tán dữ liệu và xử lý song song (*Parallel Processing*).
+- **Offset:** Số nguyên tăng dần tuần tự (sequential, immutable) định danh vị trí duy nhất của từng message trong Partition. Hoạt động giống như **"dấu trang (bookmark)"** để Consumer ghi nhớ vị trí đã đọc đến đâu.
+- **Consumer Group:** Tập hợp các Consumer cùng phối hợp đọc dữ liệu từ một Topic để chia tải.
+  - *Quy tắc vàng:* Tại một thời điểm, **một Partition chỉ được đọc bởi tối đa một Consumer** trong cùng một group.
+
+---
+
+### 3. Nếu có 3 partitions và 5 consumers trong cùng 1 group, điều gì xảy ra?
+- **Hiện tượng xảy ra:**
+  - 3 Partitions sẽ được gán cho 3 Consumers (mỗi Consumer đọc 1 Partition).
+  - **2 Consumers còn lại sẽ rơi vào trạng thái nhàn rỗi (IDLE / Standby)**, không được gán bất kỳ partition nào và không nhận được message nào để xử lý.
+- **Về hiệu năng:** **Hiệu năng KHÔNG hề tăng thêm** so với khi chỉ chạy 3 Consumers, vì số lượng partitions chính là giới hạn trên của mức độ song song (Max Concurrency) trong cùng một group.
+- **Ý nghĩa thực tế của 2 Consumer nhàn rỗi:** Đóng vai trò là **Hot Standby (Dự phòng)**. Nếu chẳng may 1 trong 3 active consumer bị chết (crash), cơ chế **Rebalance** của Kafka sẽ lập tức gán partition đó cho 1 trong 2 consumer nhàn rỗi để tiếp tục xử lý ngay mà không làm gián đoạn hệ thống.
+- **Quy tắc thiết kế:** *Số Partitions = Số lượng Consumer tối đa hoạt động hiệu quả trong một Group*.
+
+---
+
+### 4. `auto-offset-reset: earliest` vs `latest` khác nhau thế nào?
+- **Điều kiện phát huy tác dụng:** Cấu hình này **CHỈ** được kích hoạt trong 2 trường hợp:
+  1. Consumer Group **lần đầu tiên kết nối vào Topic** (chưa từng lưu lại lịch sử `committed offset` trên Kafka).
+  2. `Offset` trước đó của group **đã bị xóa/hết hạn** trên Broker (do chính sách dọn dẹp log retention).
+  *(Nếu group đã có committed offset hợp lệ, ứng dụng luôn đọc tiếp từ offset tiếp theo bất kể đặt `earliest` hay `latest`)*.
+- **So sánh 2 giá trị:**
+  - **`earliest`:** Bắt đầu đọc từ message cũ nhất còn tồn tại trong Partition (offset 0 hoặc offset nhỏ nhất còn lưu).  
+    *Khi nào dùng:* Dịch vụ nạp dữ liệu phân tích (Analytics), đồng bộ dữ liệu vào kho data mới cần đọc lại toàn bộ lịch sử.
+  - **`latest`** *(Mặc định của Kafka):* Bỏ qua toàn bộ dữ liệu lịch sử trong quá khứ, chỉ bắt đầu đọc các message mới được ghi vào Topic sau thời điểm Consumer kết nối.  
+    *Khi nào dùng:* Dịch vụ gửi thông báo đẩy (Push Notification), chat realtime, cảm biến IoT nơi dữ liệu cũ không còn giá trị.
+
+---
+
+### 5. At-most-once, at-least-once, exactly-once delivery là gì?
+| Cấp độ | Cơ chế cam kết | Rủi ro | Ứng dụng thực tế |
+|:---|:---|:---:|:---|
+| **At-most-once** *(Tối đa 1 lần)* | Consumer commit offset **TRƯỚC** khi hoàn tất xử lý logic và ghi DB. Nếu app sập giữa chừng, tin nhắn đó bị bỏ qua vĩnh viễn. | ❌ **Mất message** | Dùng cho log metric, dữ liệu cảm biến định kỳ (chấp nhận mất vài bản ghi). |
+| **At-least-once** *(Ít nhất 1 lần)* | Consumer xử lý DB xong mới commit offset. Nếu vừa ghi DB xong mà lỗi mạng hoặc app sập trước khi kịp commit offset, Kafka sẽ gửi lại tin nhắn đó khi khởi động lại. | ⚠️ **Trùng message** | **Phổ biến nhất!** Bắt buộc phải thiết kế Consumer có tính **Idempotent** (chống xử lý trùng giao dịch). |
+| **Exactly-once** *(Đúng 1 lần)* | Kết hợp Idempotent Producer (`enable.idempotence=true`) + Kafka Transactions + Consumer 2-Phase Commit. Đảm bảo tin nhắn xử lý đúng 1 lần duy nhất. | Không mất, không trùng | Các hệ thống thanh toán, ngân hàng cốt lõi (chi phí tài nguyên và độ trễ cao nhất). |
+
+---
+
+### 6. `@KafkaListener` annotation cần những parameter gì tối thiểu?
+- **Thuộc tính tối thiểu:**
+  1. **`topics`**: Tên của Topic (hoặc danh sách topics) mà Consumer sẽ lắng nghe.
+  2. **`groupId`**: Tên định danh Consumer Group của service (nếu chưa cấu hình thuộc tính `spring.kafka.consumer.group-id` trong YAML).
+- **Code minh họa chuẩn:**
+```java
+@Service
+public class OrderEventConsumer {
+
+    @KafkaListener(topics = "order-events", groupId = "payment-service-group")
+    public void handleOrderEvent(OrderEvent event) {
+        log.info("Nhận event đơn hàng: {}", event.getOrderId());
+        if ("ORDER_CREATED".equals(event.getType())) {
+            processPayment(event);
+        }
+    }
+}
+```
+
+---
+
+### 7. `KafkaTemplate.send()` trả về gì? Xử lý thất bại như thế nào?
+- **Kiểu trả về:** **`CompletableFuture<SendResult<K, V>>`** *(trong Spring Boot 3 / Spring-Kafka 3.x)* hoặc `ListenableFuture<SendResult<K, V>>` *(trong Spring Boot 2)*.
+- **Vì sao trả về Future:** Vì phương thức `send()` hoạt động hoàn toàn **bất đồng bộ (Non-blocking)**. Thread gửi tin không bị block đứng chờ mạng, mà nhận ngay một Future đại diện cho kết quả xác nhận (ACK) từ Kafka Broker.
+- **Cách xử lý lỗi gửi thất bại:** Sử dụng callback non-blocking `.whenComplete()`:
+```java
+@Autowired
+private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+
+public void publishOrder(OrderEvent event) {
+    kafkaTemplate.send("order-events", event.getOrderId(), event)
+        .whenComplete((result, ex) -> {
+            if (ex != null) {
+                // XỬ LÝ THẤT BẠI: Kafka Broker sập, timeout, serialization error...
+                log.error("Gửi event thất bại cho order {}: {}", event.getOrderId(), ex.getMessage());
+                // Giải pháp: Ghi vào bảng Transactional Outbox trong DB để worker retry sau
+            } else {
+                // GỬI THÀNH CÔNG: Lấy metadata do Broker phản hồi
+                log.info("Gửi thành công vào Partition {} với Offset {}", 
+                         result.getRecordMetadata().partition(),
+                         result.getRecordMetadata().offset());
+            }
+        });
+}
+```
+
+---
+
+### 8. Mono vs Flux khác nhau như thế nào?
+- **`Mono<T>`**: Là Reactive Publisher phát ra **0 hoặc 1 phần tử** duy nhất (hoặc tín hiệu lỗi `onError`), sau đó hoàn tất (`onComplete`).
+  - *Tương đương:* `Optional<T>` hoặc `CompletableFuture<T>` trong thế giới Reactive.
+  - *Ví dụ:* Tìm entity theo ID `findById(id)` ➔ `Mono<UserDTO>`, hoặc thao tác xóa không cần body trả về ➔ `Mono<Void>`.
+- **`Flux<T>`**: Là Reactive Publisher phát ra một chuỗi gồm **0 đến N phần tử** (có thể là stream hữu hạn hoặc vô hạn theo thời gian).
+  - *Tương đương:* `List<T>` hoặc `Stream<T>` nhưng hoạt động bất đồng bộ và non-blocking.
+  - *Ví dụ:* Lấy toàn bộ danh sách `findAll()` ➔ `Flux<UserDTO>`, hoặc truyền dữ liệu thời gian thực Server-Sent Events (SSE) như cập nhật giá chứng khoán, chat stream ➔ `Flux<PriceTick>`.
+
+---
+
+### 9. WebClient khác RestTemplate ở điểm gì? Khi nào nên dùng WebClient?
+- **So sánh điểm cốt lõi:**
+  | Tiêu chí | RestTemplate | WebClient |
+  |:---|:---|:---|
+  | **Mô hình kiến trúc** | Blocking / Synchronous (1 Thread = 1 Request) | Non-blocking / Reactive (Event Loop dựa trên Netty) |
+  | **Tiêu tốn tài nguyên** | Ngốn RAM lớn khi traffic cao (*Thread Starvation*) | Cực kỳ tiết kiệm thread, chỉ cần ít thread cho hàng vạn request |
+  | **Khả năng thực thi** | Chỉ chạy được Blocking | Hỗ trợ cả Non-blocking (Reactive) lẫn Blocking (qua `.block()`) |
+  | **Streaming / SSE** | Kém hoặc không hỗ trợ | Tích hợp sẵn và hỗ trợ hoàn hảo qua `Flux` |
+  | **Trạng thái hỗ trợ** | Bị Deprecated / Maintenance Mode từ Spring 5.0 | Được Spring Team khuyến nghị chính thức cho mọi dự án mới |
+
+- **Khi nào nên dùng WebClient:**
+  1. Khi xây dựng các hệ thống yêu cầu thông lượng cao (*High Throughput / High Concurrency*), gọi nhiều API song song để tổng hợp dữ liệu (BFF pattern).
+  2. Khi làm việc với Spring WebFlux, Reactive Microservices hoặc Spring Cloud Gateway.
+  3. Thay thế toàn bộ `RestTemplate` trong các dự án Spring Boot hiện đại.
+
+---
+
+### 10. Kafka Producer gửi message, nếu Consumer down thì message có bị mất không?
+- **Khẳng định:** **Message KHÔNG HỀ BỊ MẤT**.
+- **Giải thích cơ chế hoạt động của Kafka:**
+  1. **Lưu trữ bền vững trên đĩa cứng (Disk Persistence):** Message khi gửi vào Kafka không chỉ nằm trên RAM mà được ghi tuần tự trực tiếp xuống đĩa cứng của Kafka Broker trong file segment của Partition.
+  2. **Chính sách lưu giữ (Retention Policy):** Kafka lưu trữ message theo thời gian cấu hình (mặc định là **7 ngày** - `log.retention.hours=168`), độc lập hoàn toàn với việc có Consumer nào đọc hay chưa.
+  3. **Truy vết đọc qua Offset:** Vị trí đọc của Consumer Group được lưu trong topic nội bộ `__consumer_offsets`. Khi Consumer khởi động lại, nó chỉ cần truy vấn offset đã commit lần trước (ví dụ 50) và tiếp tục đọc các message tồn đọng từ offset 51 trở đi một cách mượt mà và an toàn.
+
 
 ---
 

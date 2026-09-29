@@ -368,18 +368,156 @@ Giải pháp:
 
 ---
 
-## ❓ Câu hỏi Ôn tập
+## ❓ Câu hỏi Ôn tập & Trả lời chi tiết
 
-1. Tại sao cần caching? Lợi ích cụ thể là gì?
-2. Mô tả Cache-Aside strategy: Read flow và Write flow
-3. Phân biệt @Cacheable, @CacheEvict, @CachePut
-4. `condition` và `unless` trong @Cacheable dùng để làm gì?
-5. Tại sao cần @EnableCaching ở main class?
-6. Cách config Redis TTL trong Spring Boot
-7. @CachePut khác @Cacheable ở điểm gì?
-8. RedisTemplate dùng khi nào thay vì @Cacheable?
-9. Cache Stampede là gì? Cách phòng tránh?
-10. Redis hỗ trợ những data type nào? Use case của mỗi loại?
+### 1. Tại sao cần caching? Lợi ích cụ thể là gì?
+- **Bản chất vật lý:** Tốc độ truy xuất trên RAM (In-Memory) chỉ mất **dưới 1ms**, nhanh hơn từ 20 đến 50 lần so với việc đọc đĩa cứng và thực thi các câu lệnh SQL phức tạp trên Database (thường mất 20ms - 100ms).
+- **3 lợi ích cốt lõi:**
+  1. **Giảm độ trễ (Ultra-low Latency / Faster Response Time):** Phản hồi dữ liệu cho người dùng gần như tức thời, nâng cao trải nghiệm ứng dụng (UX).
+  2. **Bảo vệ và giảm tải cho Database (Offload Database):** Với 1.000 người dùng cùng truy cập vào một sản phẩm hot, chỉ có đúng **1 request** chạm vào DB (Cache Miss), **999 request còn lại** được đọc trực tiếp từ Cache (Cache Hit), giúp DB tránh bị cạn kiệt Connection Pool.
+  3. **Tăng thông lượng hệ thống (High Throughput & Scalability):** Hệ thống có thể chịu được lượng request/giây (QPS/RPS) khổng lồ mà không cần tốn chi phí nâng cấp phần cứng Database đắt đỏ.
+
+---
+
+### 2. Mô tả Cache-Aside strategy: Read flow và Write flow
+```
+READ FLOW:
+App ──► Check Cache ──[HIT]──► Trả về dữ liệu ngay (< 1ms)
+            │
+          [MISS]
+            ▼
+        Query Database ──► Lưu vào Cache (kèm TTL) ──► Trả về dữ liệu
+
+WRITE FLOW:
+App ──► Update Database ──► XÓA (Evict) key khỏi Cache
+```
+- **Read Flow (Luồng đọc - Lazy Loading):**
+  1. Ứng dụng kiểm tra dữ liệu trong Cache trước.
+  2. *Nếu Cache Hit:* Lấy dữ liệu từ Cache trả về ngay.
+  3. *Nếu Cache Miss:* Truy vấn dữ liệu từ Database ➔ Lưu dữ liệu vừa lấy được vào Cache (kèm thời gian TTL) ➔ Trả về kết quả cho client.
+- **Write Flow (Luồng ghi/cập nhật):**
+  1. Ứng dụng cập nhật dữ liệu mới vào Database trước.
+  2. Sau đó, **XÓA (Invalidate / Evict) key tương ứng khỏi Cache**, để lần đọc tiếp theo tự động nạp lại.
+  - *Tại sao XÓA chứ không ghi đè ngay:*
+    - **Tiết kiệm RAM:** Tránh nạp những dữ liệu mà sau khi sửa không có ai đọc lại.
+    - **Tránh Race Condition:** Ngăn chặn việc 2 luồng ghi đồng thời làm thứ tự ghi đè Cache bị đảo lộn, khiến Cache chứa dữ liệu cũ còn DB chứa dữ liệu mới.
+
+---
+
+### 3. Phân biệt `@Cacheable`, `@CacheEvict`, `@CachePut`
+| Annotation | Cơ chế thực thi method | Tác động lên Cache | Ứng dụng thực tế |
+|:---|:---|:---|:---|
+| **`@Cacheable`** | **CHỈ CHẠY KHI CACHE MISS**. Nếu đã có sẵn trong Cache (HIT), method **bị bỏ qua hoàn toàn**. | Nạp kết quả vào Cache nếu chưa có. | API Xem chi tiết, Tìm kiếm (`GET /products/{id}`) |
+| **`@CacheEvict`** | **LUÔN LUÔN THỰC THI METHOD**. | **Xóa bỏ (Invalidate)** 1 key (hoặc xóa sạch toàn bộ `allEntries = true`) khỏi Cache. | API Xóa hoặc Cập nhật dữ liệu (`DELETE`, `PUT`) |
+| **`@CachePut`** | **LUÔN LUÔN THỰC THI METHOD** (không bao giờ bỏ qua). | Lấy kết quả mới nhất trả về của method để **cập nhật đè vào Cache**. | API Cập nhật cần đồng bộ cache tức thời |
+
+*(Lưu ý: Các annotation này chỉ can thiệp vào Cache, việc đọc/ghi/xóa Database là do logic bên trong method đảm nhận).*
+
+---
+
+### 4. `condition` và `unless` trong `@Cacheable` dùng để làm gì?
+- **`condition` (Đánh giá TRƯỚC khi method chạy):**
+  - Đánh giá dựa trên các **tham số đầu vào** của method.
+  - Nếu `condition == false`: Spring bỏ qua toàn bộ cơ chế cache (không đọc cache và không lưu cache).
+  - *Ví dụ:* `condition = "#id > 0"` (chỉ áp dụng cache nếu ID hợp lệ).
+  - ⚠️ *Lưu ý:* Không thể truy cập biến `#result` trong `condition` vì method chưa thực thi!
+- **`unless` (Đánh giá SAU khi method chạy xong):**
+  - Đánh giá dựa trên **kết quả trả về (`#result`)** của method.
+  - Mang nghĩa: *"Lưu vào cache TRỪ KHI điều kiện này là đúng"* (nếu `unless == true` ➔ KHÔNG LƯU VÀO CACHE).
+  - *Ví dụ kinh điển:* `unless = "#result == null"` (nếu kết quả là `null` thì không lưu vào cache, tránh lưu giá trị rỗng).
+
+---
+
+### 5. Tại sao cần `@EnableCaching` ở main class?
+- **Bản chất kỹ thuật:** Là annotation "công tắc" kích hoạt cơ chế Spring AOP (`CacheInterceptor` / Dynamic Proxy) để quét và bọc quanh các Service Bean có chứa các annotation cache.
+- **Nếu thiếu `@EnableCaching`:**
+  - Ứng dụng **vẫn khởi động và chạy bình thường, không hề có lỗi đỏ hay crash**.
+  - Tuy nhiên, tất cả các annotation `@Cacheable`, `@CacheEvict`, `@CachePut` sẽ **hoàn toàn vô tác dụng** (bị Spring bỏ qua trong im lặng).
+  - Kết quả là mỗi lần gọi hàm, ứng dụng luôn âm thầm truy vấn thẳng vào Database mà không hề có bộ đệm nào hoạt động.
+
+---
+
+### 6. Cách config Redis TTL trong Spring Boot
+- **Cách 1: Cấu hình mặc định toàn cục qua `application.yml`:**
+  ```yaml
+  spring:
+    cache:
+      type: redis
+      redis:
+        time-to-live: 60m            # Tất cả cache mặc định hết hạn sau 60 phút
+        cache-null-values: false     # Không cache giá trị null
+  ```
+- **Cách 2: Java Config bằng `RedisCacheManager` (Đặt TTL riêng cho từng loại dữ liệu):**
+  ```java
+  @Bean
+  public CacheManager cacheManager(RedisConnectionFactory factory) {
+      RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+          .entryTtl(Duration.ofMinutes(60)); // Mặc định 60 phút
+
+      Map<String, RedisCacheConfiguration> cacheConfigs = new HashMap<>();
+      cacheConfigs.put("products", defaultConfig.entryTtl(Duration.ofMinutes(30))); // 30 phút
+      cacheConfigs.put("users", defaultConfig.entryTtl(Duration.ofMinutes(10)));    // 10 phút
+      cacheConfigs.put("flash-deals", defaultConfig.entryTtl(Duration.ofMinutes(5))); // 5 phút
+
+      return RedisCacheManager.builder(factory)
+          .cacheDefaults(defaultConfig)
+          .withInitialCacheConfigurations(cacheConfigs)
+          .build();
+  }
+  ```
+
+---
+
+### 7. `@CachePut` khác `@Cacheable` ở điểm gì?
+- **Khác biệt cốt lõi:**
+  - `@Cacheable` kiểm tra cache trước: nếu dữ liệu **đã có trong Cache**, nó **bỏ qua hoàn toàn không chạy code trong method**.
+  - `@CachePut` **luôn luôn thực thi method**, sau đó mới lấy kết quả trả về để ghi đè/cập nhật vào cache.
+- **Trường hợp bắt buộc dùng `@CachePut`:** Dùng cho các method Cập nhật dữ liệu (Update). Nếu bạn gắn nhầm `@Cacheable` lên method update, Spring thấy key đã tồn tại trong Cache sẽ bỏ qua method ➔ **Database không hề được cập nhật dữ liệu mới!**
+
+---
+
+### 8. `RedisTemplate` dùng khi nào thay vì `@Cacheable`?
+Các annotation cấp cao chỉ hỗ trợ lưu Key-Value đơn giản dạng JSON/String. Bắt buộc phải dùng `RedisTemplate` (hoặc `StringRedisTemplate`) trong 4 bài toán:
+1. **Sử dụng cấu trúc dữ liệu nâng cao của Redis:**
+   - `Hash` (`opsForHash`): Lưu giỏ hàng (*Shopping Cart*) để cập nhật số lượng từng món mà không serialize lại cả giỏ hàng.
+   - `Sorted Set` (`opsForZSet`): Làm Bảng xếp hạng điểm số Realtime (*Leaderboard*).
+   - `List` (`opsForList`): Làm hàng đợi tin nhắn nhỏ (FIFO Queue), timeline bài viết.
+   - `Geo` (`opsForGeo`): Tìm kiếm tài xế/quán ăn gần vị trí người dùng nhất.
+2. **Thao tác nguyên tử (Atomic Counter):**
+   - Đếm số lượt xem (View Counter), đếm số lần nhập sai mật khẩu: `redisTemplate.opsForValue().increment(key)`. Áp dụng làm Rate Limiter chống spam.
+3. **Khóa phân tán (Distributed Lock với `SETNX`):**
+   - Dùng `setIfAbsent(key, "LOCKED", timeout)` để đảm bảo chỉ duy nhất 1 server được phép chạy một tác vụ cronjob tại một thời điểm.
+4. **Quản lý Session & TTL động:**
+   - Cài đặt thời gian sống linh hoạt theo từng người dùng (ví dụ: OTP hết hạn sau 2 phút, User Session tự gia hạn sau mỗi thao tác).
+
+---
+
+### 9. Cache Stampede là gì? Cách phòng tránh?
+- **Hiện tượng Cache Stampede (Thảm họa giẫm đạp / Dog-piling):**
+  - Xảy ra khi một key dữ liệu cực HOT (Hotkey có hàng chục ngàn người truy cập mỗi giây) vừa **hết hạn TTL** hoặc bị xóa.
+  - Ngay tại tích tắc đó, hàng ngàn request cùng lúc đều bị **Cache Miss**.
+  - Cả hàng ngàn request này đồng loạt dội thẳng vào Database để chạy câu lệnh SQL nặng nạp lại cache ➔ **Database bị quá tải CPU 100%, cạn pool kết nối và sập ngay lập tức!**
+- **3 giải pháp kỹ thuật phòng tránh:**
+  1. **Mutex Lock / Khóa phân tán (`SETNX`):** Chỉ cho phép duy nhất 1 request lấy được Lock được phép query DB để nạp lại Cache. Các request khác tạm nghỉ 50ms rồi quay lại đọc Cache (khi này đã có dữ liệu).
+  2. **Background Refresh (Làm mới chủ động):** Worker chạy ngầm định kỳ kiểm tra, nếu key sắp hết hạn (ví dụ TTL còn dưới 10%) thì chủ động query DB nạp mới lại trước.
+  3. **Jitter TTL:** Cộng thêm một khoảng thời gian ngẫu nhiên vào TTL (`TTL = 30 phút + random(1, 5) phút`) để các key không bao giờ bị hết hạn cùng một thời điểm (chống sập hàng loạt - *Cache Avalanche*).
+
+---
+
+### 10. Redis hỗ trợ những data type nào? Use case của mỗi loại?
+1. **String:** Cấu trúc cơ bản nhất (Text, JSON, Binary tối đa 512MB).  
+   *Use case:* Caching API Response (JSON DTO), lưu mã OTP, User Session, biến đếm View Counter (`INCR`).
+2. **Hash:** Cấu trúc dạng Object (`Key ➔ Field:Value`).  
+   *Use case:* Lưu trữ User Profile (`user:1 ➔ name, email`), Giỏ hàng thương mại điện tử (`cart:userId ➔ productId:quantity`) giúp update từng món nhanh chóng.
+3. **List:** Danh sách liên kết hai đầu (Doubly Linked List).  
+   *Use case:* Hàng đợi tin nhắn đơn giản FIFO (`LPUSH`/`RPOP`), hiển thị timeline 10 bài viết mới nhất.
+4. **Set:** Tập hợp các phần tử duy nhất, không trùng lặp, không thứ tự.  
+   *Use case:* Quản lý Tag bài viết, lọc trùng lặp, tính năng Bạn chung (`SINTER`), Blacklist IP.
+5. **Sorted Set (ZSet):** Tập hợp phần tử duy nhất, tự động sắp xếp theo điểm số (**Score**).  
+   *Use case:* Bảng xếp hạng Realtime (Leaderboard game/doanh số), thuật toán Sliding Window Rate Limiter.
+6. **Stream:** Nhật ký tuần tự có hỗ trợ Consumer Groups.  
+   *Use case:* Event Sourcing, Message Broker nhẹ xử lý sự kiện thời gian thực.
+
 
 ---
 
