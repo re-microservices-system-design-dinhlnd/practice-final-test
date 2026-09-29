@@ -1,0 +1,20 @@
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native          # ← THÊM: Báo cho Config Server dùng local filesystem
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: file:///Users/dinhlu2482/Desktop/IT214_Microservice_System_Design/Practice_Final_Test/practice/ecommerce-microservice/config-repo
+          # ↑ THÊM file:// prefix cho đường dẫn tuyệt đối
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info
