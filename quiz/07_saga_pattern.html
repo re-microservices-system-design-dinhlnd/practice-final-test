@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 07 – Saga Pattern</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>07. Saga Pattern &amp; Distributed Transaction</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "Tại sao @Transactional của Spring không hoạt động được trong Microservice?",
+      options: [
+        "Vì @Transactional yêu cầu Spring Boot version 3+ và chỉ hỗ trợ PostgreSQL",
+        "Vì @Transactional chỉ quản lý Local Transaction trên 1 DataSource, không span qua mạng sang DB service khác",
+        "Vì @Transactional không hỗ trợ NoSQL database mà Microservice thường dùng",
+        "Vì @Transactional bị disabled khi có nhiều hơn 1 service instance chạy cùng lúc"
+      ],
+      answer: 1,
+      explanation: "@Transactional hoạt động qua PlatformTransactionManager với 1 DataSource. Microservice: Service A có DB riêng, Service B có DB riêng ở server khác → không có shared transaction boundary nào."
+    },
+    {
+      level: "Dễ",
+      q: "Saga Pattern là gì? Định nghĩa ngắn gọn nhất?",
+      options: [
+        "Framework tự động tạo transaction xuyên service dựa trên @Distributed annotation",
+        "Chuỗi Local Transaction nhỏ; nếu bước nào fail thì kích hoạt Compensating Transactions để hoàn tác",
+        "Pattern lưu toàn bộ lịch sử event của hệ thống vào append-only log để replay",
+        "Thuật toán tối ưu hóa số lần commit database trong môi trường distributed"
+      ],
+      answer: 1,
+      explanation: "Saga: chuỗi local transactions. Mỗi service thực thi local transaction, publish event. Nếu fail → compensating transactions chạy ngược lại để hoàn tác các bước trước đã commit."
+    },
+    {
+      level: "Dễ",
+      q: "Compensating Transaction khác Database Rollback ở điểm QUAN TRỌNG nào?",
+      options: [
+        "Compensating Transaction nhanh hơn vì không cần ghi log và không có overhead",
+        "Rollback hủy dữ liệu CHƯA commit; Compensating tạo transaction MỚI để đảo ngược hiệu ứng của transaction ĐÃ COMMIT",
+        "Compensating Transaction chỉ áp dụng cho database quan hệ, không dùng với NoSQL",
+        "Rollback do database engine thực hiện; Compensating do Message Broker thực hiện"
+      ],
+      answer: 1,
+      explanation: "Rollback: hủy uncommitted changes trong cùng transaction. Compensating: bước trước ĐÃ commit rồi (dữ liệu đã trong DB), phải tạo transaction mới với logic đảo ngược. Ví dụ: Reserve → Release; Charge → Refund."
+    },
+    {
+      level: "Dễ",
+      q: "2 loại Saga Pattern: điểm khác nhau cốt lõi là gì?",
+      options: [
+        "Choreography dùng REST; Orchestration dùng Kafka để giao tiếp giữa service",
+        "Choreography nhanh hơn; Orchestration chính xác hơn nhưng chậm hơn",
+        "Choreography: service tự phối hợp qua Events (không có nhạc trưởng); Orchestration: Orchestrator trung tâm ra lệnh cho từng service",
+        "Choreography dùng cho 2 service; Orchestration dùng khi có hơn 5 service tham gia"
+      ],
+      answer: 2,
+      explanation: "Choreography: vũ đạo – service tự biết làm gì khi nhận event, loose coupling, phân tán. Orchestration: nhạc trưởng – 1 Orchestrator ra lệnh theo state machine, centralized, dễ debug."
+    },
+    {
+      level: "Dễ",
+      q: "Saga có đảm bảo tính ACID không? Thay vào đó dùng mô hình gì?",
+      options: [
+        "Saga đảm bảo đầy đủ ACID nhờ cơ chế Compensating Transaction",
+        "Saga chỉ đảm bảo A (Atomicity) và D (Durability), mất C và I",
+        "Saga không đảm bảo ACID – đặc biệt thiếu Isolation (I); thay bằng BASE (Basically Available, Soft-state, Eventually Consistent)",
+        "Saga đảm bảo ACID nhưng chỉ trong trường hợp các service dùng cùng database vendor"
+      ],
+      answer: 2,
+      explanation: "Saga mất Isolation: dữ liệu trung gian (inventory đã reserve nhưng payment chưa xong) có thể bị đọc bởi service khác. Chấp nhận BASE thay vì ACID để đổi lấy distributed transaction."
+    },
+    {
+      level: "Dễ",
+      q: "Tại sao không dùng 2PC (Two-Phase Commit) cho Microservice?",
+      options: [
+        "2PC quá mới, chưa ổn định và còn nhiều bug trong phiên bản hiện tại",
+        "2PC chỉ hỗ trợ tối đa 2 service, không scale được khi có nhiều service hơn",
+        "2PC là blocking protocol (khóa resource lâu), tạo SPOF tại Coordinator, không tương thích NoSQL/Kafka",
+        "2PC yêu cầu tất cả service phải cùng framework Spring, không đa ngôn ngữ được"
+      ],
+      answer: 2,
+      explanation: "2PC vấn đề: (1) Blocking – khóa resource trong suốt thời gian prepare, (2) SPOF tại Coordinator, (3) Coordinator crash sau Phase 1 → tất cả participant treo vĩnh viễn, (4) NoSQL/Kafka không hỗ trợ 2PC protocol."
+    },
+    {
+      level: "Dễ",
+      q: "Idempotency trong Saga: tại sao cần thiết cho Kafka At-least-once?",
+      options: [
+        "Để Kafka gửi message nhanh hơn bằng cách bỏ qua checksum validation",
+        "Vì Kafka At-least-once có thể gửi duplicate message; Consumer phải xử lý an toàn: cùng event chạy 1 hay N lần cho kết quả như nhau",
+        "Để đảm bảo tất cả Consumer Group đều nhận được cùng message từ Kafka Broker",
+        "Vì các service trong Saga có thể gọi nhau trực tiếp mà không qua Kafka"
+      ],
+      answer: 1,
+      explanation: "At-least-once: crash trước khi commit offset → Kafka gửi lại. Nếu Consumer không idempotent → trừ tiền 2 lần, reserve inventory 2 lần. Idempotency Key (event_id) ngăn xử lý duplicate."
+    },
+    {
+      level: "Dễ",
+      q: "Trong Choreography Saga, khi Payment fail, ai kích hoạt Release Inventory?",
+      options: [
+        "Orchestrator trung tâm phát hiện Payment fail và gửi Release command",
+        "Payment Service publish event 'payment-failed'; Inventory Service subscribe và tự thực hiện Release",
+        "API Gateway intercept response của Payment và tự gọi Inventory Release endpoint",
+        "Saga Framework tự động gọi compensating method theo config trong Saga definition file"
+      ],
+      answer: 1,
+      explanation: "Choreography: Payment Service publish 'payment-failed'. Inventory Service đã subscribe topic này → tự động nhận event → thực hiện Release Inventory compensating transaction. Không cần coordinator."
+    },
+    {
+      level: "Trung bình",
+      q: "Happy Path của Order Saga (Inventory → Payment → Confirm) đi qua trạng thái nào?",
+      options: [
+        "CREATED → VALIDATED → PROCESSED → ARCHIVED",
+        "PENDING → INVENTORY_RESERVED → PAYMENT_SUCCESS → ORDER_CONFIRMED",
+        "INIT → LOCK → CHARGE → DONE",
+        "OPEN → IN_PROGRESS → COMMITTED → CLOSED"
+      ],
+      answer: 1,
+      explanation: "Order tạo: PENDING. Inventory reserve thành công: INVENTORY_RESERVED. Payment charge thành công: PAYMENT_SUCCESS. Tất cả bước xong: ORDER_CONFIRMED. Từng bước publish event tương ứng."
+    },
+    {
+      level: "Trung bình",
+      q: "Ưu điểm lớn nhất của Choreography? Khi nào nó trở thành vấn đề?",
+      options: [
+        "Dễ test vì chỉ cần unit test từng service riêng lẻ không cần tích hợp",
+        "Không cần Message Broker phức tạp như Kafka, chỉ cần HTTP calls đơn giản",
+        "Loose Coupling, không có SPOF. Vấn đề khi hệ thống lớn: Spaghetti Events – khó trace toàn bộ flow khi có >4-5 service",
+        "Đơn giản để implement vì chỉ cần 1 annotation @Choreography trên service class"
+      ],
+      answer: 2,
+      explanation: "Choreography: Loose Coupling, No SPOF, phân tán. Nhưng khi hệ thống có >4-5 service với flow phức tạp: 'ai publish gì? ai nhận gì? flow tổng thể là gì?' trở thành mê cung Spaghetti Events."
+    },
+    {
+      level: "Trung bình",
+      q: "Implement Idempotent Consumer đúng cách nhất trong Spring Boot là như thế nào?",
+      options: [
+        "Set auto-offset-reset=latest để bỏ qua message cũ có thể là duplicate",
+        "@KafkaListener với try-catch DuplicateKeyException khi lưu event vào DB",
+        "@KafkaListener: check processed_events bằng eventId; nếu tồn tại → return; xử lý logic + save eventId trong cùng @Transactional",
+        "Dùng synchronized block xung quanh toàn bộ Kafka listener method để ngăn concurrent xử lý"
+      ],
+      answer: 2,
+      explanation: "Cốt lõi: check + process + save_eventId trong CÙNG 1 @Transactional. Nếu business logic fail → rollback → eventId không được lưu → Kafka retry là đúng. Đảm bảo atomicity giữa business action và idempotency record."
+    },
+    {
+      level: "Trung bình",
+      q: "Nếu Orchestrator crash giữa chừng Saga, điều gì xảy ra nếu thiết kế đúng chuẩn?",
+      options: [
+        "Toàn bộ Saga bị rollback ngay lập tức vì mất Orchestrator là lost coordinator",
+        "Saga tiếp tục tự chạy nhờ các service biết state của nhau qua shared memory",
+        "Orchestrator lưu trạng thái vào DB (Saga Log) trước mỗi bước; khi restart, Background Watcher resume/compensate từ bước cuối đã lưu",
+        "Phải restart toàn bộ hệ thống và tạo lại Saga từ đầu với dữ liệu mới"
+      ],
+      answer: 2,
+      explanation: "Persistent Saga State: mỗi bước Orchestrator phải lưu {current_step, status, payload} vào DB TRƯỚC khi gửi command. Restart → Watcher tìm IN_PROGRESS saga → resume hoặc compensate từ last checkpoint."
+    },
+    {
+      level: "Trung bình",
+      q: "BASE model thay thế ACID trong Saga gồm những gì?",
+      options: [
+        "Backup, Atomicity, Security, Encryption – 4 thuộc tính bảo mật cho distributed transaction",
+        "Basically Available, Soft-state, Eventually Consistent – ưu tiên availability hơn strict consistency",
+        "Broker, Async, Service, Event – 4 thành phần kiến trúc của Saga pattern",
+        "Basically Available, Strong Consistency, Eventually Durable – mô hình lai giữa ACID và BASE"
+      ],
+      answer: 1,
+      explanation: "BASE: Basically Available (luôn phục vụ được), Soft-state (trạng thái thay đổi theo thời gian không cần input), Eventually Consistent (sau đủ thời gian, tất cả node hội tụ về cùng trạng thái)."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao Compensating Transaction KHÔNG ĐƯỢC PHÉP fail vĩnh viễn? Cơ chế đảm bảo?",
+      options: [
+        "Có thể fail, chỉ cần ghi log và team DevOps sẽ xử lý thủ công trong vòng 24h",
+        "Compensate fail → dữ liệu stuck ở trạng thái không nhất quán mãi mãi. Cơ chế: Kafka durable retry, Exponential Backoff, Dead Letter Queue + manual intervention nếu vẫn fail",
+        "Không cần lo vì Saga Framework tự động retry vô hạn cho đến khi compensate thành công",
+        "Compensate fail được xử lý bằng cách chạy Compensate của Compensate (chuỗi đảo ngược)"
+      ],
+      answer: 1,
+      explanation: "Compensate MUST succeed eventually: (1) Kafka guaranteed delivery, (2) Exponential Backoff retry, (3) Nếu vẫn fail nhiều lần → Dead Letter Queue → alert → Manual Reconciliation bởi kỹ sư. Data corruption không thể chấp nhận."
+    },
+    {
+      level: "Khó",
+      q: "Khi nào nên chọn Orchestration thay vì Choreography? Rủi ro cần lưu ý?",
+      options: [
+        "Luôn chọn Orchestration vì dễ debug hơn, không có nhược điểm đáng kể",
+        "Orchestration: flow phức tạp >4-5 bước, cần visibility. Rủi ro: Orchestrator là SPOF và Bottleneck nếu không được thiết kế HA",
+        "Orchestration chỉ phù hợp cho nghiệp vụ tài chính, Choreography cho e-commerce",
+        "Orchestration khi team ít kinh nghiệm, Choreography khi team có senior engineer"
+      ],
+      answer: 1,
+      explanation: "Orchestration khi: flow phức tạp, nhiều kịch bản rollback khác nhau, cần debug dễ. Rủi ro: Orchestrator SPOF → giải pháp: HA cluster cho Orchestrator + Persistent State + Stateless Orchestrator design."
+    },
+    {
+      level: "Khó",
+      q: "Vấn đề 'Lost Update' trong Saga xảy ra khi nào? Giải pháp kỹ thuật?",
+      options: [
+        "Lost Update xảy ra khi Kafka Consumer không commit offset sau khi xử lý message",
+        "Lost Update xảy ra khi 2 Saga chạy song song cùng đọc-sửa resource. Giải pháp: Pessimistic Lock (SELECT FOR UPDATE) hoặc Optimistic Lock (version field + retry)",
+        "Lost Update xảy ra khi Orchestrator crash và mất state của Saga đang chạy",
+        "Lost Update xảy ra khi Compensating Transaction ghi đè dữ liệu của Saga thành công khác"
+      ],
+      answer: 1,
+      explanation: "Hậu quả mất Isolation: 2 order cùng reserve item cuối. Pessimistic: SELECT FOR UPDATE lock row → an toàn, giảm throughput. Optimistic: version field, retry khi version conflict → không lock, tốt cho low-contention."
+    },
+    {
+      level: "Khó",
+      q: "Framework nào thường dùng cho Orchestration Saga trong production? Tại sao không tự code?",
+      options: [
+        "Spring MVC với @Transactional chain là đủ cho hầu hết use case trong production",
+        "Redis Pub/Sub làm trung gian để các service biết state của nhau một cách đơn giản",
+        "Temporal.io, Axon Framework, Camunda – vì chúng xử lý sẵn: Persistent State, Retry, Timeout, Compensate, Dashboard, HA Cluster",
+        "Kafka Streams với KTable để lưu state của Saga và xử lý transitions tự động"
+      ],
+      answer: 2,
+      explanation: "Temporal: code workflow như bình thường nhưng tự persistent, replay khi crash, retry, timeout. Axon: Event Sourcing + CQRS + Saga. Tự code: phức tạp, nhiều edge case (timeout, crash, partial failure), dễ bug nghiêm trọng."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 05 – Async Communication (Kafka, WebFlux)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>05. Giao tiếp bất đồng bộ (Kafka &amp; WebFlux)</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "Kafka Offset là gì và hoạt động như thế nào?",
+      options: [
+        "Kích thước tối đa của message được phép gửi vào 1 Partition của Topic",
+        "ID duy nhất của Consumer Group được Kafka tự động gán khi group tạo mới",
+        "Số nguyên tăng dần, định danh vị trí duy nhất của từng message trong Partition – bookmark của Consumer",
+        "Địa chỉ IP của Kafka Broker Leader chịu trách nhiệm cho 1 Partition cụ thể"
+      ],
+      answer: 2,
+      explanation: "Offset: sequential, immutable, per-partition. Consumer commit offset để đánh dấu đã xử lý đến đâu. Restart → đọc từ committed_offset + 1. Lưu trong topic nội bộ __consumer_offsets."
+    },
+    {
+      level: "Dễ",
+      q: "Quy tắc vàng của Consumer Group trong Kafka là gì?",
+      options: [
+        "Mỗi Consumer Group phải có đúng số Consumer bằng số Partition để tối ưu",
+        "Tại 1 thời điểm, 1 Partition chỉ được đọc bởi tối đa 1 Consumer trong cùng group",
+        "Consumer Group không được đọc từ cùng Topic với Consumer Group khác",
+        "Mỗi Consumer trong Group phải deploy trên server vật lý khác nhau"
+      ],
+      answer: 1,
+      explanation: "1 Partition ↔ 1 Consumer trong cùng group (tại 1 thời điểm). Đảm bảo ordering trong partition. Số partition = max concurrency trong 1 group. Consumer nhiều hơn partition → consumer thừa idle."
+    },
+    {
+      level: "Dễ",
+      q: "Mono<T> và Flux<T> trong Spring WebFlux khác nhau thế nào?",
+      options: [
+        "Mono xử lý JSON; Flux xử lý XML và binary stream data",
+        "Mono là synchronous blocking; Flux là asynchronous non-blocking",
+        "Mono = 0 hoặc 1 phần tử; Flux = 0 đến N phần tử (có thể là stream vô hạn)",
+        "Mono dùng cho Controller; Flux chỉ dùng được trong Service layer"
+      ],
+      answer: 2,
+      explanation: "Mono<T>: tương đương Optional/CompletableFuture. Flux<T>: tương đương List/Stream nhưng reactive, push-based. Flux có thể vô hạn (SSE stream, WebSocket, sensor data)."
+    },
+    {
+      level: "Dễ",
+      q: "Nếu có 3 Partitions và 5 Consumers trong cùng 1 Consumer Group, điều gì xảy ra?",
+      options: [
+        "Kafka từ chối 2 Consumer thừa và báo lỗi cấu hình không hợp lệ",
+        "5 Consumer chia đều: 2 consumer nhận 1 partition, 1 consumer nhận partition còn lại",
+        "3 Consumer nhận 1 partition mỗi người; 2 Consumer còn lại IDLE – là Hot Standby",
+        "Kafka tự tạo thêm 2 Partition mới để tất cả Consumer đều có việc làm"
+      ],
+      answer: 2,
+      explanation: "Max concurrency = số partitions. 2 consumer dư sẽ IDLE nhưng là Hot Standby. Nếu 1 active consumer chết → Kafka Rebalance → 1 standby nhận partition đó ngay lập tức."
+    },
+    {
+      level: "Dễ",
+      q: "@KafkaListener annotation cần tối thiểu những tham số nào?",
+      options: [
+        "offset và partition – để chỉ định điểm bắt đầu đọc chính xác từ đâu",
+        "topics và groupId – tên topic lắng nghe và Consumer Group ID",
+        "brokers và schema – địa chỉ Kafka Broker và Schema Registry URL",
+        "concurrency và batchSize – số thread consumer và số message xử lý mỗi lần"
+      ],
+      answer: 1,
+      explanation: "@KafkaListener(topics='order-events', groupId='payment-group'). groupId có thể bỏ qua nếu cấu hình spring.kafka.consumer.group-id trong YAML. topics là tham số bắt buộc tối thiểu."
+    },
+    {
+      level: "Dễ",
+      q: "auto-offset-reset: earliest vs latest – điều kiện nào mới kích hoạt cấu hình này?",
+      options: [
+        "Luôn áp dụng mỗi khi Consumer restart, bất kể đã có committed offset trước đó hay chưa",
+        "Chỉ áp dụng khi Consumer Group chưa có committed offset (lần đầu) hoặc offset đã hết hạn",
+        "Chỉ áp dụng khi topic có hơn 1 Partition và Consumer Group có nhiều hơn 1 member",
+        "Chỉ áp dụng trong môi trường development, production luôn dùng latest mặc định"
+      ],
+      answer: 1,
+      explanation: "Nếu Consumer Group đã có valid committed offset → luôn tiếp tục từ đó, bất kể earliest/latest. Cấu hình này CHỈ áp dụng khi offset chưa tồn tại hoặc đã bị expired do retention."
+    },
+    {
+      level: "Dễ",
+      q: "Khi Consumer service bị down, message đã publish vào Kafka có bị mất không?",
+      options: [
+        "Có – message mất sau 5 phút nếu không có Consumer đọc theo cấu hình mặc định",
+        "Có – message chỉ tồn tại trong RAM của Broker và mất khi Broker restart",
+        "Không – Kafka ghi message xuống disk theo retention policy (mặc định 7 ngày), Consumer restart đọc từ committed offset",
+        "Không chắc – phụ thuộc vào cấu hình acks của Producer khi gửi message"
+      ],
+      answer: 2,
+      explanation: "Kafka = durable message store. Ghi tuần tự xuống disk. log.retention.hours=168 (7 ngày mặc định). Consumer restart → đọc từ committed offset trong __consumer_offsets. Message không bao giờ mất trước khi hết retention."
+    },
+    {
+      level: "Dễ",
+      q: "WebClient khác RestTemplate ở điểm cốt lõi nhất là gì?",
+      options: [
+        "WebClient chỉ hỗ trợ WebSocket, RestTemplate hỗ trợ đầy đủ HTTP protocol",
+        "WebClient không cần @LoadBalanced để tích hợp Eureka, RestTemplate cần",
+        "WebClient non-blocking/reactive (Netty event loop), RestTemplate blocking (1 thread = 1 request)",
+        "WebClient chỉ available trong Spring Boot 3+, RestTemplate chạy từ Spring Boot 1.x"
+      ],
+      answer: 2,
+      explanation: "RestTemplate: block thread chờ I/O. N concurrent req = N blocked threads → Thread Starvation. WebClient: Netty event loop, thread không block → ít thread phục vụ nhiều concurrent request."
+    },
+    {
+      level: "Trung bình",
+      q: "3 mức delivery guarantee của Kafka khác nhau ở điểm gì cốt lõi?",
+      options: [
+        "Khác nhau về tốc độ xử lý: at-most-once nhanh nhất, exactly-once chậm nhất",
+        "Khác nhau về kích thước message cho phép: at-most-once nhỏ nhất, exactly-once lớn nhất",
+        "At-most-once (có thể mất), At-least-once (có thể trùng – phổ biến nhất, cần Idempotent Consumer), Exactly-once (không mất không trùng – tốn kém nhất về tài nguyên)",
+        "Khác nhau về số Partition tối đa: at-most-once 1 partition, exactly-once unlimited"
+      ],
+      answer: 2,
+      explanation: "At-most-once: commit trước xử lý → crash → mất message. At-least-once: xử lý trước commit → crash → duplicate. Exactly-once: Idempotent Producer + Transaction, chi phí cao nhất."
+    },
+    {
+      level: "Trung bình",
+      q: "KafkaTemplate.send() trả về gì? Cách handle khi gửi thất bại?",
+      options: [
+        "Trả về void; không cần handle vì Kafka đảm bảo delivery 100% trong mọi trường hợp",
+        "Trả về Boolean; true = thành công, false = thất bại, retry thủ công nếu false",
+        "Trả về CompletableFuture<SendResult<K,V>>; handle thất bại bằng .whenComplete() – khi ex != null thì ghi Outbox Table để retry",
+        "Trả về SendResult đồng bộ (blocking) với partition và offset đã ghi thành công"
+      ],
+      answer: 2,
+      explanation: "send() async, trả Future. .whenComplete((result, ex) -> { if(ex!=null) lưu vào Outbox Table; else log partition+offset }). Outbox Pattern đảm bảo không mất event khi Kafka tạm down."
+    },
+    {
+      level: "Trung bình",
+      q: "Kafka đóng vai trò Buffer trong Flash Sale như thế nào?",
+      options: [
+        "Kafka tự động scale database khi phát hiện QPS vượt ngưỡng cấu hình sẵn",
+        "Kafka giảm kích thước payload trước khi gửi xuống database để giảm I/O load",
+        "Producer đẩy 100k order/s vào Kafka. Consumer xử lý 5k/s từ topic. DB chỉ nhận 5k/s – không bị quá tải",
+        "Kafka replicate database sang nhiều node để chia đều read traffic khi cao điểm"
+      ],
+      answer: 2,
+      explanation: "Kafka là hồ chứa đệm. Flash Sale: 100k order/giây vào Kafka (nhanh, persistent). Consumer xử lý theo công suất thực (5k/s). DB nhận 5k/s thay vì 100k/s → không sập. Order không bị drop, chỉ delayed."
+    },
+    {
+      level: "Trung bình",
+      q: "Mono.zip() và flatMap() trong WebFlux dùng trong trường hợp nào khác nhau?",
+      options: [
+        "zip() cho Mono; flatMap() chỉ dùng được với Flux stream",
+        "zip() cho blocking operations; flatMap() cho non-blocking operations",
+        "zip(): thực thi nhiều Mono SONG SONG, combine khi tất cả xong. flatMap(): CHAIN các async call tuần tự, output call này là input call tiếp theo",
+        "zip() cho read operations; flatMap() chỉ dùng cho write và delete operations"
+      ],
+      answer: 2,
+      explanation: "Mono.zip(getUser(id), getProduct(pid), combiner): A và B chạy song song, khi cả 2 xong mới combine. flatMap(): getUser(id).flatMap(user → getOrders(user.getId())) – phụ thuộc nhau, tuần tự."
+    },
+    {
+      level: "Trung bình",
+      q: "At-least-once delivery cần Idempotent Consumer. Tại sao và cách implement?",
+      options: [
+        "Vì Kafka có thể gửi message đến sai Consumer Group nếu không có idempotency check",
+        "Vì Consumer có thể xử lý message theo thứ tự sai nếu không có idempotency control",
+        "Vì Kafka gửi lại message khi Consumer crash trước khi commit offset → duplicate; check event_id trong processed_events trước khi xử lý trong cùng @Transactional",
+        "Vì Producer có thể gửi trùng message khi retry sau timeout mà không cần Consumer handle"
+      ],
+      answer: 2,
+      explanation: "At-least-once: xử lý xong DB nhưng crash trước khi commit offset → Kafka gửi lại → duplicate processing. Idempotent Consumer: check eventId → nếu đã có → skip. Lưu eventId trong cùng transaction với business logic."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao số Partition quyết định mức độ song song của Consumer Group? Quy tắc thiết kế?",
+      options: [
+        "Partition quyết định max throughput của Producer, không liên quan đến Consumer concurrency",
+        "1 Partition = 1 active Consumer trong group. Max concurrency = số partition. Đặt partition = expected peak consumers; nên chọn trước vì tăng partition về sau có thể phá vỡ key-based ordering",
+        "Nên luôn đặt 1 partition để đảm bảo strict ordering toàn bộ topic",
+        "Consumer nhiều hơn partition sẽ tăng throughput vì các consumer chia nhau xử lý từng message"
+      ],
+      answer: 1,
+      explanation: "1P = 1C trong group. Muốn 10 consumer song song → cần ít nhất 10 partitions. Tăng partition sau: Kafka cho phép nhưng phá vỡ ordering nếu dùng key-based partition. Nên ước tính và đặt trước đủ lớn."
+    },
+    {
+      level: "Khó",
+      q: "Kafka Rebalance xảy ra khi nào? Ảnh hưởng gì đến hệ thống trong lúc rebalance?",
+      options: [
+        "Rebalance xảy ra mỗi 30 giây định kỳ để tối ưu phân bổ partition cho consumer",
+        "Rebalance xảy ra khi Consumer join/leave group hoặc partition thêm. Trong rebalance: TẤT CẢ consumer tạm dừng (stop-the-world) → latency spike",
+        "Rebalance chỉ xảy ra khi Kafka Broker Leader bị thay đổi, không ảnh hưởng consumer",
+        "Rebalance xảy ra ngầm không ảnh hưởng consumer, chỉ cần 1-2ms để hoàn thành"
+      ],
+      answer: 1,
+      explanation: "Rebalance triggers: Consumer join/leave/crash, partition thêm. Stop-the-world pause: tất cả consumer dừng consume trong lúc Group Coordinator phân bổ lại. Giảm thiểu: tăng session.timeout.ms, dùng Static Group Membership."
+    },
+    {
+      level: "Khó",
+      q: "Transactional Outbox Pattern giải quyết vấn đề gì trong Kafka? Khi nào cần dùng?",
+      options: [
+        "Giải quyết vấn đề Consumer Group rebalance làm mất message trong quá trình xử lý",
+        "Giải quyết vấn đề Kafka Broker down làm mất toàn bộ message trong partition",
+        "Giải quyết vấn đề: lưu DB thành công nhưng publish Kafka fail → inconsistency. Outbox: lưu event vào bảng DB trong cùng transaction → Relay Worker đọc outbox → publish Kafka",
+        "Giải quyết vấn đề Consumer xử lý message theo thứ tự sai do network delay"
+      ],
+      answer: 2,
+      explanation: "Outbox Pattern: @Transactional { save(order); save(outboxEvent); } – atomic. Relay Worker: đọc outbox → publish Kafka → delete outbox. Đảm bảo At-least-once delivery kể cả khi Kafka tạm down lúc publish."
+    },
+    {
+      level: "Khó",
+      q: "Non-blocking I/O (WebFlux) scale tốt hơn Blocking I/O (RestTemplate) ở workload nào? Tại sao?",
+      options: [
+        "Non-blocking tốt hơn ở mọi workload vì dùng ít CPU hơn cho cùng số request",
+        "Non-blocking chỉ tốt hơn khi xử lý binary data, blocking tốt hơn khi xử lý JSON",
+        "Non-blocking tốt hơn ở I/O-bound high-concurrency workload. Blocking: 200 thread pool → max 200 concurrent. Non-blocking: 8 event loop threads → xử lý hàng vạn concurrent",
+        "Non-blocking luôn tệ hơn blocking vì event loop callback khó debug và trace lỗi"
+      ],
+      answer: 2,
+      explanation: "I/O-bound workload (DB query, HTTP call): thread blocking chờ I/O = lãng phí. Netty event loop: thread gửi I/O request → không block → xử lý request khác → callback khi I/O xong. Ít thread, nhiều throughput."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 09 – Ôn tập Tổng hợp</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>🔀 Ôn tập Tổng hợp – Tất cả chủ đề</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Trung bình",
+      q: "[Monolithic vs Microservice] Khi nào Monolithic phù hợp hơn Microservice?",
+      options: [
+        "Khi team có hơn 20 developers cần chia domain rõ ràng theo Conway's Law",
+        "Khi cần scale riêng từng chức năng vì traffic distribution không đồng đều",
+        "Khi startup mới, domain chưa rõ ràng, team nhỏ và không có năng lực DevOps",
+        "Khi có nhiều ngôn ngữ lập trình khác nhau và cần Polyglot Tech Stack"
+      ],
+      answer: 2,
+      explanation: "Martin Fowler: 'Start with a monolith.' Monolithic tốt khi domain chưa rõ (tách sai rất tốn kém), team nhỏ, và chưa có hạ tầng CI/CD + DevOps trưởng thành."
+    },
+    {
+      level: "Trung bình",
+      q: "[Config & Discovery] Nếu Config Server down, service MỚI khởi động thì sao?",
+      options: [
+        "Service khởi động với config mặc định được hardcode trong source code",
+        "Service fail startup hoàn toàn vì không fetch được config cần thiết (DB URL, credentials)",
+        "Service chờ tối đa 5 phút đến khi Config Server lên rồi mới tiếp tục bootstrap",
+        "Service kế thừa config của service cùng loại đang chạy qua shared environment"
+      ],
+      answer: 1,
+      explanation: "Service mới: cần fetch config trong bước Spring Context bootstrap. Không có config → không init được DataSource, Kafka → Startup Failure. Service đang chạy không bị ảnh hưởng (config đã trong RAM)."
+    },
+    {
+      level: "Trung bình",
+      q: "[API Gateway] 'lb://user-service/api/users' trong Spring Cloud Gateway route nghĩa là gì?",
+      options: [
+        "Kết nối Linux Bash script tên 'user-service' để xử lý routing logic",
+        "Load Balanced – tra 'user-service' trong Eureka, Round Robin chọn instance, forward đến /api/users",
+        "Local Binding – forward đến service chạy trên cùng host tại path /api/users",
+        "Kết nối qua Layer-4 Load Balancer đến cluster tên 'user-service'"
+      ],
+      answer: 1,
+      explanation: "lb:// = Load Balanced. Gateway dùng Spring Cloud LoadBalancer tra Eureka bằng 'user-service' → list IP:Port → Round Robin chọn 1 → rewrite URI → forward HTTP request."
+    },
+    {
+      level: "Trung bình",
+      q: "[Sync Communication] FeignClient(name='product-service'): name này lấy từ đâu?",
+      options: [
+        "Tên file JAR của service được deploy trong Kubernetes cluster",
+        "spring.application.name của product-service đăng ký trên Eureka",
+        "Tên hostname của server máy chủ đang chạy product-service",
+        "Tên package chính của product-service trong cấu trúc Maven project"
+      ],
+      answer: 1,
+      explanation: "@FeignClient(name='product-service'): Spring Cloud tra Eureka bằng key 'product-service' (= spring.application.name của service đó). Không cần URL tĩnh, tự động load balanced."
+    },
+    {
+      level: "Trung bình",
+      q: "[Kafka] Có 4 Partitions và 2 Consumers trong cùng 1 Consumer Group. Phân bổ như thế nào?",
+      options: [
+        "Consumer 1 nhận 3 partitions; Consumer 2 nhận 1 partition vì partition 0 được ưu tiên",
+        "Mỗi Consumer nhận 2 partitions (phân bổ đều: 4/2 = 2)",
+        "Cả 2 Consumer cùng đọc tất cả 4 partitions – tổng hợp kết quả cuối cùng",
+        "Consumer 1 nhận partition 0,1; Consumer 2 nhận partition 2,3; phân bổ theo thứ tự offset"
+      ],
+      answer: 1,
+      explanation: "Kafka phân bổ đều khi có thể: 4/2 = mỗi consumer 2 partitions. Nếu thêm consumer thứ 3: 1 consumer nhận 2 partitions, 2 consumer còn lại mỗi người 1. Consumer thứ 5 sẽ IDLE."
+    },
+    {
+      level: "Trung bình",
+      q: "[Circuit Breaker] Sau khi Circuit Breaker OPEN, request tiếp theo xảy ra gì?",
+      options: [
+        "Request được retry tự động 3 lần sau mỗi 1 giây rồi mới kết luận fail",
+        "Request bị Fail-Fast ngay (không gọi network), Fallback method được gọi để trả default response",
+        "Request chờ trong queue đến khi wait-duration kết thúc rồi mới được xử lý",
+        "Request được route đến instance backup của service đích qua Load Balancer"
+      ],
+      answer: 1,
+      explanation: "OPEN = Fail-Fast: không chiếm thread, không gọi network → Fallback ngay lập tức. Sau wait-duration-in-open-state → HALF-OPEN để cho permitted-calls thăm dò service đích."
+    },
+    {
+      level: "Trung bình",
+      q: "[Saga] Trong Choreography Saga, sau khi Inventory Reserve thành công, ai quyết định bước tiếp theo?",
+      options: [
+        "Một Orchestrator trung tâm phát command 'charge-payment' đến Payment Service",
+        "Inventory Service publish event 'inventory-reserved'; Payment Service subscribe và tự kích hoạt xử lý",
+        "API Gateway đọc response từ Inventory và điều phối bước tiếp theo",
+        "Cron Job định kỳ scan database tìm order INVENTORY_RESERVED và trigger payment"
+      ],
+      answer: 1,
+      explanation: "Choreography = event-driven, không có nhạc trưởng. Inventory publish 'inventory-reserved' → Payment Service (đang subscribe) tự nhận event → xử lý payment. Mỗi service tự biết làm gì khi nhận event."
+    },
+    {
+      level: "Trung bình",
+      q: "[Redis] Tại sao không được dùng @Cacheable trên method UPDATE?",
+      options: [
+        "Vì @Cacheable không hỗ trợ @RequestBody khiến Jackson không thể deserialize",
+        "@Cacheable cache hit → bỏ qua method → DB không được cập nhật – silent data corruption",
+        "Vì @Cacheable chỉ hoạt động với GET HTTP method trong REST controller",
+        "Vì annotation @Transactional không tương thích với @Cacheable trên cùng method"
+      ],
+      answer: 1,
+      explanation: "@Cacheable trên updateProduct(id): lần 2 call với id đó → cache hit → method bị skip → DB vẫn dữ liệu cũ → bug nghiêm trọng không có error message. Phải dùng @CachePut để luôn chạy method."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] Order Service tạo order → publish Kafka 'order-created' → Inventory Service down. Điều gì xảy ra với order?",
+      options: [
+        "Order bị hủy tự động sau 5 phút vì timeout chờ Inventory response",
+        "Order message nằm trong Kafka topic. Khi Inventory restart, đọc từ committed offset và xử lý. Order không mất, chỉ delayed",
+        "Order Service nhận exception từ Kafka, rollback transaction, báo lỗi về client",
+        "Kafka tự gọi lại Inventory Service sau 1 phút theo cơ chế built-in retry"
+      ],
+      answer: 1,
+      explanation: "Kafka durability: message lưu trên disk theo retention. Inventory restart → đọc từ committed offset → xử lý tồn đọng. Đây là lợi thế cốt lõi của Async communication so với REST đồng bộ."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] User Service → @FeignClient → Order Service (có @CircuitBreaker). Order Service bị chậm. Ai được bảo vệ?",
+      options: [
+        "Order Service được bảo vệ khỏi quá tải request từ User Service",
+        "User Service được bảo vệ: CB trong User Service phát hiện Order slow, OPEN, gọi Fallback → User Service không bị Thread Starvation",
+        "Cả hai service đều được bảo vệ như nhau bởi Circuit Breaker chạy ở cả 2 đầu",
+        "Chỉ database của Order Service được bảo vệ khỏi quá tải query"
+      ],
+      answer: 1,
+      explanation: "@CircuitBreaker đặt ở CALLER (User Service) để bảo vệ CALLER. Order slow → CB ở User Service OPEN → Fallback → User Service thread giải phóng → tiếp tục phục vụ request khác không bị cascade fail."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] Nên dùng Sync hay Async cho: (1) Gửi notification sau tạo order, (2) Trừ tồn kho, (3) Trả trạng thái order về user?",
+      options: [
+        "Tất cả dùng REST đồng bộ vì cần đảm bảo consistency ngay lập tức",
+        "Tất cả dùng Kafka bất đồng bộ vì giúp decoupling và scale độc lập",
+        "(1) Async-Kafka (fire-and-forget); (2) Sync-REST hoặc Saga (cần biết kết quả); (3) Sync-REST (user đang chờ response ngay)",
+        "(1) Sync để đảm bảo gửi; (2) Async để scale kho; (3) Async vì user không cần biết ngay"
+      ],
+      answer: 2,
+      explanation: "Rule: Sync khi cần kết quả ngay để tiếp tục business flow. Async cho fire-and-forget hoặc có thể trì hoãn. Notification = không cần wait. Tồn kho = cần biết trước confirm. Trạng thái = user đang chờ phải trả ngay."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] Trong production, Eureka Server và Config Server mỗi loại nên chạy bao nhiêu instance? Lý do?",
+      options: [
+        "Mỗi loại 1 instance là đủ, downtime ngắn (vài phút) vẫn chấp nhận được",
+        "Eureka 3 instances (peer-to-peer sync); Config Server 2+ instances sau LB. Cả hai đều là SPOF nếu chỉ có 1 instance",
+        "Eureka 1 instance, Config Server 3 instances vì Config Server quan trọng hơn",
+        "Chỉ cần nhiều database replicas, không cần nhiều instance của Eureka hay Config Server"
+      ],
+      answer: 1,
+      explanation: "Cả hai đều là infrastructure critical. Eureka down → service không discover nhau. Config down → service mới không startup. Eureka: 3-node peer-to-peer cluster. Config: 2+ sau LB hoặc đăng ký vào Eureka."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] Payment Service trả 500 qua FeignClient. Chuỗi xử lý đầy đủ với CB + Fallback?",
+      options: [
+        "500 → retry 3 lần → sau 3 lần fail → gọi Fallback → trả kết quả cho caller",
+        "500 → FeignException → Circuit Breaker intercept → Fallback method → trả default response. CB ghi nhận failure vào sliding window",
+        "500 → FeignException → propagate lên GlobalExceptionHandler → trả 503 cho client",
+        "500 → Gateway bắt error → gọi lại Payment Service với timeout mới → Fallback nếu vẫn fail"
+      ],
+      answer: 1,
+      explanation: "Flow: 500 → ErrorDecoder ném FeignException → CB intercept → Fallback(PAYMENT_PENDING) → Order Service nhận default → tiếp tục xử lý. CB ghi vào sliding window → nếu vượt threshold → OPEN cho request sau."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] Idempotency cần xử lý khi cả Kafka retry và Saga compensate cùng xảy ra. Cách implement đúng?",
+      options: [
+        "Disable Kafka retry để không có duplicate, chỉ để Saga tự xử lý compensate",
+        "Dùng exactly-once Kafka thay at-least-once để loại bỏ hoàn toàn duplicate",
+        "Mỗi event có composite key saga_id+step_name; @Transactional: check → process → save_key. Nếu fail → rollback → key không lưu → retry an toàn",
+        "Chỉ cần check event_id trong Redis cache trước khi xử lý, không cần lưu DB"
+      ],
+      answer: 2,
+      explanation: "Composite key: 'saga-123-RESERVE_INVENTORY'. @Transactional: {if(exists(key)) return; doWork(); save(key);}. Fail → rollback cả business action lẫn key → retry đúng đắn. Redis check alone: race condition nếu 2 instance cùng check."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] E-commerce Flash Sale: pattern nào kết hợp là thiết yếu nhất?",
+      options: [
+        "Chỉ cần Config Server + Eureka + API Gateway là đủ cho Flash Sale",
+        "Kafka + Redis Cache + Circuit Breaker + Saga – buffer traffic, giảm DB load, ngăn cascade, đảm bảo consistency",
+        "Chỉ cần scale ngang Order Service thêm nhiều instance là đủ xử lý Flash Sale",
+        "Circuit Breaker + Database Read Replica là pattern quan trọng nhất cho Flash Sale"
+      ],
+      answer: 1,
+      explanation: "Flash Sale requires: (1) Kafka – buffer 100k orders/s, (2) Redis – cache product/inventory giảm DB queries, (3) Circuit Breaker – bảo vệ khi DB stress, (4) Saga – đảm bảo inventory + payment distributed transaction. Thiếu bất kỳ → hệ thống dễ sập."
+    },
+    {
+      level: "Khó",
+      q: "[Tổng hợp] Distributed Tracing quan trọng như thế nào? Thiếu nó, debug lỗi trong Microservice ra sao?",
+      options: [
+        "Không quan trọng trong production, chỉ cần trong development để debug",
+        "Thiếu tracing: grep log từng service bằng timestamp – chậm và error-prone. Với Zipkin/Jaeger + Trace-ID: 1 click thấy toàn bộ call tree, latency từng hop, service nào fail",
+        "Chỉ cần centralised logging (ELK Stack) là đủ để debug request xuyên nhiều service",
+        "Không cần distributed tracing nếu mỗi service có đủ log level ở mức DEBUG"
+      ],
+      answer: 1,
+      explanation: "Thiếu tracing: request đi qua 10 service → lỗi ở đâu? Phải check log từng service theo timestamp thủ công. Với Sleuth + Zipkin/Jaeger: TraceID propagate qua HTTP/Kafka headers → visual call tree → bottleneck rõ ràng."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

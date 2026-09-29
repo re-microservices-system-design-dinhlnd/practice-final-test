@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 02 – Config Server & Service Discovery</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>02. Config Server &amp; Service Discovery (Eureka)</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "Annotation nào dùng để khai báo một ứng dụng Spring Boot là Config Server?",
+      options: ["@EnableConfigClient", "@EnableConfigServer", "@SpringCloudConfig", "@ConfigServerEnabled"],
+      answer: 1,
+      explanation: "@EnableConfigServer đặt trên Main class để Spring Boot phục vụ config qua HTTP. Client fetch config bằng cách gọi về địa chỉ Config Server."
+    },
+    {
+      level: "Dễ",
+      q: "Port mặc định của Spring Cloud Config Server và Eureka Server lần lượt là bao nhiêu?",
+      options: ["Config: 8080 / Eureka: 9090", "Config: 8761 / Eureka: 8888", "Config: 8888 / Eureka: 8761", "Config: 9090 / Eureka: 8080"],
+      answer: 2,
+      explanation: "Config Server mặc định: port 8888. Eureka Server mặc định: port 8761. Dễ nhầm vì đây là 2 giá trị hay swap với nhau."
+    },
+    {
+      level: "Dễ",
+      q: "Annotation nào dùng để khai báo một ứng dụng là Eureka Server?",
+      options: ["@EnableEurekaClient", "@EnableDiscoveryServer", "@EnableEurekaServer", "@EnableServiceRegistry"],
+      answer: 2,
+      explanation: "@EnableEurekaServer đặt trên Main class để biến app thành Service Registry (cuốn danh bạ). Client dùng @EnableDiscoveryClient hoặc @EnableEurekaClient để đăng ký vào."
+    },
+    {
+      level: "Dễ",
+      q: "Heartbeat interval mặc định của Eureka Client là bao lâu?",
+      options: ["10 giây (lease-renewal-interval: 10s)", "30 giây (lease-renewal-interval: 30s)", "60 giây (lease-renewal-interval: 60s)", "90 giây (lease-renewal-interval: 90s)"],
+      answer: 1,
+      explanation: "Heartbeat mặc định: 30 giây. Sau 90 giây (3 chu kỳ) không nhận heartbeat → Eureka evict instance. Có thể giảm xuống 5-10s cho dev environment."
+    },
+    {
+      level: "Dễ",
+      q: "@RefreshScope dùng để làm gì trong Spring Cloud Config?",
+      options: [
+        "Khởi động lại toàn bộ ứng dụng khi config Git thay đổi để nạp giá trị mới",
+        "Cho phép Bean được khởi tạo lại với config mới khi nhận refresh event, không cần restart",
+        "Đăng ký Bean vào Service Registry Eureka khi khởi động ứng dụng",
+        "Xóa toàn bộ cache Redis khi admin gọi endpoint actuator/refresh"
+      ],
+      answer: 1,
+      explanation: "@RefreshScope tạo CGLIB Proxy. Khi POST /actuator/refresh → Spring xóa cached Bean instance → lần gọi method tiếp theo tạo Bean mới với @Value config mới nhất (Lazy Reload)."
+    },
+    {
+      level: "Dễ",
+      q: "Sau bao lâu Eureka Server xóa instance không còn gửi heartbeat?",
+      options: [
+        "Sau 30 giây (bằng 1 chu kỳ heartbeat interval mặc định)",
+        "Sau 60 giây (bằng 2 chu kỳ heartbeat bị lỡ liên tiếp)",
+        "Sau 90 giây (bằng 3 chu kỳ heartbeat bị lỡ liên tiếp)",
+        "Sau 120 giây (bằng 4 chu kỳ heartbeat bị lỡ liên tiếp)"
+      ],
+      answer: 2,
+      explanation: "Lease Expiration Duration = 90 giây (mặc định). Sau 3 lần bỏ lỡ heartbeat liên tiếp (30s × 3 = 90s) → Eureka thực hiện Eviction, xóa instance khỏi Registry."
+    },
+    {
+      level: "Dễ",
+      q: "Tại sao Config Server lưu config trên Git Repo thay vì database hay filesystem?",
+      options: [
+        "Git có tốc độ đọc nhanh hơn database, phù hợp cho high-throughput configuration loading",
+        "Git cung cấp version control, lịch sử thay đổi, khả năng rollback và audit trail",
+        "Git cho phép mã hóa tự động toàn bộ config file theo chuẩn AES-256",
+        "Database thường bị SPOF còn Git luôn available 24/7 mà không cần HA setup"
+      ],
+      answer: 1,
+      explanation: "Git: (1) Version history – biết ai sửa gì khi nào, (2) Rollback nhanh – git revert, (3) Branch per environment – dev/staging/prod, (4) Audit trail cho compliance/security review."
+    },
+    {
+      level: "Dễ",
+      q: "Trong Eureka, register-with-eureka: false trên Eureka Server có tác dụng gì?",
+      options: [
+        "Eureka Server từ chối tất cả request đăng ký từ client service",
+        "Eureka Server không tự đăng ký chính mình vào Registry, tránh lỗi khi chạy standalone",
+        "Tắt toàn bộ chức năng discovery cho client trong môi trường development",
+        "Eureka Server chỉ cho phép service có trong whitelist đăng ký vào Registry"
+      ],
+      answer: 1,
+      explanation: "Eureka Server là danh bạ, không cần tự ghi tên vào chính nó. Nếu quên set false → server cố tìm Eureka Peer khác → log liên tục ConnectException khi chạy standalone."
+    },
+    {
+      level: "Trung bình",
+      q: "Thứ tự ưu tiên config khi có cả 3 file: application.yml, order-service.yml và order-service-dev.yml?",
+      options: [
+        "application.yml cao nhất vì là file chung cho toàn bộ hệ thống microservice",
+        "order-service.yml cao nhất vì đặc thù cho service, ghi đè file chung",
+        "order-service-dev.yml cao nhất vì càng cụ thể (profile-specific) càng ưu tiên",
+        "Cả 3 file có độ ưu tiên bằng nhau, key trùng sẽ lấy giá trị từ file được load cuối"
+      ],
+      answer: 2,
+      explanation: "Nguyên tắc: càng cụ thể → ưu tiên càng cao. order-service-dev.yml > order-service.yml > application.yml. Profile-specific file luôn ghi đè service file và global file."
+    },
+    {
+      level: "Trung bình",
+      q: "Tại sao cần @LoadBalanced khi dùng RestTemplate để gọi service qua Eureka?",
+      options: [
+        "Để RestTemplate tự động retry 3 lần khi nhận HTTP 5xx từ service đích",
+        "Để mã hóa HTTPS tự động khi gọi giữa các service nội bộ trong mạng private",
+        "Để RestTemplate phân giải 'http://order-service/...' sang IP:Port thực qua Eureka và cân bằng tải",
+        "Để RestTemplate bỏ qua SSL certificate validation trong môi trường development"
+      ],
+      answer: 2,
+      explanation: "Không có @LoadBalanced: RestTemplate gọi 'http://order-service/...' → UnknownHostException (DNS thật không biết 'order-service'). @LoadBalanced gắn Interceptor tra Eureka, rewrite URL sang IP:Port thực."
+    },
+    {
+      level: "Trung bình",
+      q: "Client-Side Discovery (Eureka) khác Server-Side Discovery (Kubernetes Service) ở điểm gì cốt lõi nhất?",
+      options: [
+        "Client-Side Discovery không cần Service Registry, dùng DNS để tìm service",
+        "Trong Client-Side, CLIENT tự query Registry và chọn instance; Server-Side thì Load Balancer trung gian làm điều đó",
+        "Server-Side Discovery nhanh hơn vì dùng UDP thay vì TCP cho service lookup",
+        "Client-Side Discovery chỉ hoạt động với Java, Server-Side hoạt động được với mọi ngôn ngữ"
+      ],
+      answer: 1,
+      explanation: "Client-Side (Eureka): Client → hỏi Registry → chọn instance → gọi thẳng (1 hop, phụ thuộc SDK). Server-Side (K8s Service): Client → LB → LB hỏi Registry → forward (2 hops, ngôn ngữ-agnostic)."
+    },
+    {
+      level: "Trung bình",
+      q: "Eureka Self-Preservation Mode kích hoạt khi nào? Mục đích là gì?",
+      options: [
+        "Khi RAM Eureka Server vượt 80%, nó bắt đầu nén và lưu registry xuống disk để bảo toàn dữ liệu",
+        "Khi tỷ lệ heartbeat nhận được dưới 85% trong 15 phút, Eureka ngừng evict để tránh xóa nhầm do network partition",
+        "Khi có hơn 100 service đăng ký, Eureka tự bật mode này để giới hạn số lượng registry entry",
+        "Khi Eureka Server bị restart, mode này giúp khôi phục registry từ backup file tự động"
+      ],
+      answer: 1,
+      explanation: "Network Partition: service vẫn sống nhưng không gửi được heartbeat lên Eureka. Self-Preservation ngăn Eureka xóa hàng loạt service chỉ vì mạng chập chờn."
+    },
+    {
+      level: "Trung bình",
+      q: "Khi Config Server bị down, service đang chạy có bị ảnh hưởng không?",
+      options: [
+        "Tất cả service crash ngay lập tức vì mất kết nối đến nguồn cung cấp cấu hình",
+        "Service hoạt động bình thường (config trong RAM), nhưng service MỚI khởi động sẽ fail startup",
+        "Service chậm lại 50% vì phải dùng config local thay vì config từ server",
+        "Service tiếp tục chạy nhưng không nhận được request mới từ Load Balancer"
+      ],
+      answer: 1,
+      explanation: "Service đang chạy: config đã load vào Spring Context (RAM) → hoạt động bình thường. Service mới restart/scale-up: cần fetch config lúc bootstrap → Config Server down → Startup Failure."
+    },
+    {
+      level: "Trung bình",
+      q: "Quá trình đăng ký Eureka Client từ lúc khởi động đến lúc tắt gồm những giai đoạn nào?",
+      options: [
+        "Connect → Authenticate → Download Config → Start Processing → Logout",
+        "Boot → Health Check → Load Balance → Scale → Kill",
+        "Registration → Heartbeat/Lease Renewal → Fetch Registry/Local Cache → Deregister khi shutdown",
+        "DNS Lookup → TCP Connect → TLS Handshake → Service Subscribe → Unsubscribe"
+      ],
+      answer: 2,
+      explanation: "4 giai đoạn: (1) POST /eureka/apps/{app} khi start, (2) PUT heartbeat mỗi 30s, (3) GET registry mỗi 30s về Local Cache, (4) DELETE /eureka/apps/{app}/{id} khi graceful shutdown."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao thiếu @LoadBalanced trên RestTemplate gây UnknownHostException chứ không phải lỗi khác?",
+      options: [
+        "Vì RestTemplate không hỗ trợ HTTP/2 mà Eureka đang dùng để serve metadata",
+        "Vì Spring Security chặn request đến địa chỉ nội bộ chưa được whitelist",
+        "Vì không có @LoadBalanced, RestTemplate nhờ DNS OS phân giải 'order-service' như domain thật nhưng DNS không biết → UnknownHostException",
+        "Vì RestTemplate mặc định chỉ kết nối được đến localhost và không hỗ trợ service name"
+      ],
+      answer: 2,
+      explanation: "Không có @LoadBalanced → không có LoadBalancerInterceptor → RestTemplate dùng Java networking stack → OS DNS lookup 'order-service' → DNS trả NXDOMAIN → UnknownHostException."
+    },
+    {
+      level: "Khó",
+      q: "Cơ chế @RefreshScope hoạt động chi tiết như thế nào ở tầng kỹ thuật?",
+      options: [
+        "Spring restart toàn bộ ApplicationContext và khởi tạo lại tất cả Bean theo thứ tự dependency graph",
+        "Spring tạo CGLIB Proxy bọc Bean. Khi refresh, xóa cached instance. Lần gọi method tiếp theo tạo Bean mới với config mới (Lazy Reload) mà không restart JVM",
+        "Spring ghi đè trực tiếp giá trị field @Value trong RAM bằng Java Reflection API",
+        "Spring download lại file application.yml từ Config Server và parse lại toàn bộ bean definition"
+      ],
+      answer: 1,
+      explanation: "Dynamic Proxy (CGLIB): method call → proxy → nếu scope cleared → tạo fresh instance → execute. Scope cleared khi RefreshEvent. JVM không restart, chỉ Bean scope đó được recreate."
+    },
+    {
+      level: "Khó",
+      q: "Làm thế nào để đảm bảo Config Server High Availability trong production?",
+      options: [
+        "Chạy Config Server trên server vật lý mạnh nhất để giảm khả năng downtime",
+        "Backup Config Server vào Git với nhiều remote để tự động failover khi server chính down",
+        "Cluster nhiều Config Server instance sau LB hoặc đăng ký vào Eureka; kết hợp spring-retry và fail-fast: false để fallback config local",
+        "Dùng Redis làm backend storage cho Config Server thay vì Git để đảm bảo high availability"
+      ],
+      answer: 2,
+      explanation: "HA Config Server: (1) Cluster sau LB, (2) Đăng ký vào Eureka (spring.cloud.config.discovery.enabled=true), (3) spring-retry tự retry, (4) fail-fast: false → service dùng config local tạm khi Config Server down."
+    },
+    {
+      level: "Khó",
+      q: "Eureka Client Local Cache của Registry có ý nghĩa gì về performance và resilience?",
+      options: [
+        "Local Cache chỉ dùng để debug, không ảnh hưởng đến production performance hay resilience",
+        "Local Cache giúp Client lookup service từ RAM thay vì gọi network mỗi lần; nếu Eureka tạm down vài phút, Client vẫn dùng cache cũ để gọi service",
+        "Local Cache được sync realtime với Eureka nên luôn phản ánh đúng trạng thái các service",
+        "Local Cache tự động scale thêm instance khi số lượng request đến service tăng đột biến"
+      ],
+      answer: 1,
+      explanation: "Fetch registry mỗi 30s về Local Cache: (1) Performance – không gọi network mỗi lần discover service, (2) Resilience – Eureka tạm down vài phút → client vẫn dùng cache cũ để giao tiếp service khác."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

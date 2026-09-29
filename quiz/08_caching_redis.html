@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 08 – Caching với Redis</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>08. Caching với Redis</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "@Cacheable hoạt động như thế nào khi được gọi?",
+      options: [
+        "Luôn thực thi method và ghi kết quả vào cache, ngay cả khi key đã tồn tại",
+        "Kiểm tra cache trước – nếu HIT trả ngay từ cache, bỏ qua method; nếu MISS mới chạy method và lưu cache",
+        "Xóa cache cũ rồi thực thi method và lưu kết quả mới vào cache",
+        "Thực thi method song song với đọc cache, lấy kết quả nào về trước"
+      ],
+      answer: 1,
+      explanation: "@Cacheable = Lazy Loading. Cache HIT → bỏ qua method hoàn toàn (không chạy code, không gọi DB) → trả cache. MISS → chạy method → lưu kết quả vào cache → trả kết quả."
+    },
+    {
+      level: "Dễ",
+      q: "Khi nào dùng @CacheEvict? Behavior mặc định của nó là gì?",
+      options: [
+        "Khi cập nhật dữ liệu – xóa cache cũ và lưu giá trị mới vào cache",
+        "Khi xóa dữ liệu – xóa cache entry SAU KHI method thực thi thành công (beforeInvocation=false mặc định)",
+        "Khi đọc dữ liệu – evict cache cũ trước khi fetch dữ liệu mới từ database",
+        "Khi tạo dữ liệu – evict toàn bộ namespace cache để tránh stale data"
+      ],
+      answer: 1,
+      explanation: "@CacheEvict mặc định (beforeInvocation=false): method chạy trước (xóa DB), xóa cache SAU khi method thành công. Nếu method fail → cache không bị xóa → nhất quán. allEntries=true xóa toàn bộ namespace."
+    },
+    {
+      level: "Dễ",
+      q: "Tại sao @CachePut thay vì @Cacheable cho method UPDATE?",
+      options: [
+        "Vì @Cacheable nhanh hơn nhưng không hỗ trợ @RequestBody trong controller",
+        "Vì @CachePut luôn chạy method và cập nhật cache; @Cacheable cache hit thì skip method → DB không được cập nhật!",
+        "Vì @CachePut hỗ trợ allEntries=true, @Cacheable thì không",
+        "Vì @Cacheable chỉ dùng được với GET request, @CachePut dùng với PUT/POST"
+      ],
+      answer: 1,
+      explanation: "@Cacheable trên method update: nếu cache HIT → Spring bỏ qua method → DB vẫn là dữ liệu cũ → bug nghiêm trọng. @CachePut: luôn chạy method (update DB) rồi ghi kết quả mới vào cache."
+    },
+    {
+      level: "Dễ",
+      q: "Tại sao cần @EnableCaching ở Main class? Nếu thiếu thì sao?",
+      options: [
+        "Thiếu @EnableCaching thì ứng dụng không khởi động được vì Spring không tìm thấy CacheManager",
+        "@EnableCaching là 'công tắc' AOP. Thiếu → @Cacheable/@CacheEvict/@CachePut vô hiệu lực hoàn toàn, app vẫn chạy bình thường nhưng luôn query DB",
+        "Thiếu @EnableCaching thì cache vẫn hoạt động nhưng không persistent khi restart",
+        "@EnableCaching bắt buộc chỉ khi dùng Redis, nếu dùng Caffeine (in-memory) thì không cần"
+      ],
+      answer: 1,
+      explanation: "Thiếu @EnableCaching: không có CacheInterceptor AOP proxy → annotation cache bị ignore → mọi method call đều thực thi và query DB. Ứng dụng chạy bình thường nhưng không có caching. Silent failure."
+    },
+    {
+      level: "Dễ",
+      q: "Cache-Aside Read Flow diễn ra theo thứ tự nào?",
+      options: [
+        "Read DB → lưu cache → return; nếu cache miss sẽ check lại sau 1 giây",
+        "Check cache → nếu HIT trả ngay; nếu MISS → query DB → lưu vào cache với TTL → return kết quả",
+        "Đọc đồng thời từ cache và DB, lấy kết quả từ nguồn nào nhanh hơn",
+        "Cache tự động đọc từ DB nền nếu phát hiện miss, app chỉ cần đọc từ cache"
+      ],
+      answer: 1,
+      explanation: "Cache-Aside (Lazy Loading): app tự quản lý. Read: cache first → HIT: return. MISS: query DB → populate cache với TTL → return. Không bao giờ đọc cả 2 cùng lúc để tránh double load."
+    },
+    {
+      level: "Dễ",
+      q: "TTL (Time-To-Live) trong Redis có tác dụng gì?",
+      options: [
+        "Giới hạn kích thước tối đa (bytes) của value có thể lưu trong 1 key",
+        "Thời gian tối đa key tồn tại trong cache trước khi Redis tự động xóa",
+        "Số lần tối đa key có thể được đọc trước khi tự động bị invalidate",
+        "Thời gian Redis chờ response từ database trước khi timeout và trả cache cũ"
+      ],
+      answer: 1,
+      explanation: "TTL: SET key value EX 3600 → key tự xóa sau 3600s. TTL key → xem còn bao nhiêu giây. Tránh stale data tồn tại mãi trong cache. Redis có 2 cơ chế xóa: lazy expiration + active expiration sampling."
+    },
+    {
+      level: "Dễ",
+      q: "condition và unless trong @Cacheable: đánh giá ở thời điểm nào khác nhau?",
+      options: [
+        "Cả hai đều đánh giá trước khi method chạy, chỉ khác về loại expression SpEL",
+        "condition đánh giá TRƯỚC khi method chạy (không có #result); unless đánh giá SAU khi method chạy (có #result)",
+        "condition đánh giá ở Controller layer; unless đánh giá ở Service layer",
+        "Cả hai đều đánh giá SAU khi method chạy, condition dùng để đọc cache, unless để ghi cache"
+      ],
+      answer: 1,
+      explanation: "condition='#id > 0': check TRƯỚC (không có #result). unless='#result == null': check SAU (có #result). Ví dụ: unless='#result.isEmpty()' → không cache nếu kết quả empty list."
+    },
+    {
+      level: "Dễ",
+      q: "Redis hỗ trợ data structure nào phù hợp nhất cho Leaderboard (bảng xếp hạng realtime)?",
+      options: [
+        "List – thêm điểm vào cuối danh sách, sort và lấy top N mỗi khi cần hiển thị",
+        "Hash – lưu map từ userId đến điểm số, scan toàn bộ khi cần xếp hạng",
+        "Sorted Set (ZSet) – tự động sắp xếp theo score, ZREVRANGE lấy top N trong O(log N + k)",
+        "String – encode JSON list có thứ tự và overwrite mỗi khi điểm thay đổi"
+      ],
+      answer: 2,
+      explanation: "ZSet: ZADD leaderboard score userId. Tự maintain sorted order. ZREVRANGE 0 9 WITHSCORES → top 10. ZINCRBY → cộng điểm atomic. O(log N) insert. Đây là use case kinh điển nhất của Sorted Set."
+    },
+    {
+      level: "Trung bình",
+      q: "Cache-Aside Write Flow: tại sao XÓA cache thay vì cập nhật cache sau khi ghi DB?",
+      options: [
+        "Redis không hỗ trợ UPDATE operation, chỉ hỗ trợ DELETE và SET mới hoàn toàn",
+        "Tiết kiệm RAM (tránh cache data không ai đọc) và tránh Race Condition khi 2 thread ghi đồng thời làm cache có giá trị sai thứ tự",
+        "Xóa cache nhanh hơn cập nhật vì không cần serialize object sang JSON",
+        "Đây là quy tắc bắt buộc của Spring Cache abstraction không có lý do kỹ thuật cụ thể"
+      ],
+      answer: 1,
+      explanation: "2 lý do kỹ thuật: (1) Tiết kiệm RAM – update cache cho data không ai đọc lại = lãng phí. (2) Race condition: Thread A write(v2) + Thread B write(v1) cùng lúc → cache có v1 nhưng DB có v2 (hoặc ngược lại). Delete an toàn hơn."
+    },
+    {
+      level: "Trung bình",
+      q: "Cache Stampede (Dog-piling) là gì? Cách phòng tránh hiệu quả nhất?",
+      options: [
+        "Khi cache server đầy RAM và bắt đầu evict key ngẫu nhiên làm miss rate tăng đột biến",
+        "Hotkey hết TTL → hàng nghìn request cùng Cache MISS → đổ vào DB → DB sập. Phòng: Mutex Lock (SETNX), Background Refresh, Jitter TTL",
+        "Khi nhiều Redis instance cùng cập nhật 1 key gây inconsistency trong Redis Cluster",
+        "Khi Consumer Group rebalance đồng loạt invalidate cache làm miss rate tăng cao"
+      ],
+      answer: 1,
+      explanation: "Cache Stampede / Thundering Herd. Giải pháp: (1) Mutex SETNX: chỉ 1 thread query DB, rest wait+retry. (2) Background Refresh: refresh trước khi expire (TTL còn 10%). (3) Jitter TTL: thêm random để key không cùng expire."
+    },
+    {
+      level: "Trung bình",
+      q: "Khi nào PHẢI dùng RedisTemplate trực tiếp thay vì @Cacheable?",
+      options: [
+        "Khi cần cache nhiều hơn 1000 key vì @Cacheable có giới hạn số lượng key",
+        "Khi TTL cần khác nhau cho từng lần gọi vì @Cacheable chỉ set TTL cố định",
+        "Khi cần cấu trúc dữ liệu nâng cao (Hash, ZSet, List), Atomic Counter, Distributed Lock, TTL động",
+        "Khi deploy nhiều instance vì @Cacheable không hoạt động đúng với distributed environment"
+      ],
+      answer: 2,
+      explanation: "@Cacheable chỉ hỗ trợ simple key-value (serialize object → JSON string). RedisTemplate cần cho: Shopping Cart (Hash opsForHash), Leaderboard (ZSet), Rate Limiter (INCR), Distributed Lock (setIfAbsent SETNX), OTP TTL động."
+    },
+    {
+      level: "Trung bình",
+      q: "Phân biệt Cache Penetration và Cache Avalanche:",
+      options: [
+        "Penetration = cache server down; Avalanche = cache server bị DDoS đồng thời",
+        "Penetration: request key KHÔNG TỒN TẠI liên tục, luôn miss, dội vào DB. Avalanche: NHIỀU key cùng expire đồng thời, DB quá tải đột ngột",
+        "Penetration = Cache Miss; Avalanche = Cache Hit sai giá trị",
+        "Penetration dùng Redis Cluster; Avalanche dùng Redis Sentinel để giải quyết"
+      ],
+      answer: 1,
+      explanation: "Penetration: attacker gửi request ID không tồn tại → luôn miss → mỗi request hit DB. Fix: cache null result hoặc Bloom Filter. Avalanche: 10.000 key cùng expire lúc 00:00 → 10.000 DB queries đồng thời. Fix: Jitter TTL."
+    },
+    {
+      level: "Trung bình",
+      q: "Cấu hình TTL riêng cho từng loại cache trong Spring Boot bằng cách nào?",
+      options: [
+        "Dùng annotation @CacheTtl(minutes=30) trên từng @Cacheable method riêng lẻ",
+        "Chỉ có thể cấu hình 1 TTL toàn cục qua spring.cache.redis.time-to-live trong YAML",
+        "Dùng RedisCacheManager với withInitialCacheConfigurations(): Map tên-cache đến RedisCacheConfiguration với entryTtl riêng",
+        "Set TTL bằng cách gọi RedisTemplate.expire() ngay sau mỗi lần @Cacheable ghi cache"
+      ],
+      answer: 2,
+      explanation: "RedisCacheManager Builder: cacheConfigs.put('products', config.entryTtl(Duration.ofMinutes(30))); cacheConfigs.put('users', config.entryTtl(Duration.ofMinutes(10))). withInitialCacheConfigurations(cacheConfigs). Linh hoạt per-cache-name."
+    },
+    {
+      level: "Khó",
+      q: "Redis SETNX cho Distributed Lock: vấn đề gì có thể xảy ra nếu thiếu TTL? Cách fix?",
+      options: [
+        "Thiếu TTL thì key tồn tại 24h mặc định, không gây ra vấn đề nghiêm trọng",
+        "Thiếu TTL thì Redis tự xóa key sau 1 giờ theo eviction policy mặc định",
+        "Lock holder crash trước khi DEL key → deadlock vĩnh viễn. Fix: SET key value NX EX seconds – set lock + TTL trong 1 command atomic để auto-release",
+        "Thiếu TTL thì SETNX không hoạt động và luôn trả false dù key chưa tồn tại"
+      ],
+      answer: 2,
+      explanation: "Deadlock: SET LOCK 'held' NX (thành công) → process crash → không ai DEL key → mọi process sau không lấy được lock vĩnh viễn. Fix: SET key value NX EX 30 (atomic: SET + TTL). Auto-release sau 30s dù holder crash."
+    },
+    {
+      level: "Khó",
+      q: "Write-Through khác Cache-Aside như thế nào? Khi nào chọn Write-Through?",
+      options: [
+        "Write-Through ghi vào cache rồi async sync xuống DB; Cache-Aside ghi DB rồi sync lên cache",
+        "Write-Through: mọi write cập nhật cache ngay lập tức (không bao giờ stale). Chọn khi read frequency cao cho data vừa write. Trade-off: write chậm hơn, cache lưu data có thể không bao giờ được đọc",
+        "Hai pattern giống nhau, chỉ khác tên trong các paper học thuật khác nhau",
+        "Write-Through chỉ dùng được với Redis Cluster, Cache-Aside dùng với Standalone Redis"
+      ],
+      answer: 1,
+      explanation: "Write-Through: write → DB AND cache đồng thời. Luôn nhất quán, không bao giờ stale. Cache-Aside: write → DB, invalidate cache. Đơn giản hơn, nhưng first-read sau write sẽ cache miss. Chọn Write-Through khi read:write ratio cao."
+    },
+    {
+      level: "Khó",
+      q: "Sliding Window Rate Limiter dùng Redis ZSet như thế nào?",
+      options: [
+        "INCR key; nếu > limit → 429. EXPIRE key sau 1 giờ để reset counter",
+        "SADD key requestId; nếu SCARD > limit → 429. SMEMBERS để list tất cả request trong window",
+        "ZADD requests:userId timestamp requestId; ZREMRANGEBYSCORE xóa ngoài window; ZCARD đếm; nếu > limit → 429. EXPIRE để dọn",
+        "LPUSH requests:userId requestId; LLEN để đếm; LTRIM để giữ N request cuối trong window"
+      ],
+      answer: 2,
+      explanation: "ZSet: score = timestamp, value = requestId. Mỗi request: (1) ZREMRANGEBYSCORE 0 (now-window), (2) ZCARD → nếu > limit → 429, (3) ZADD score=now value=requestId, (4) EXPIRE. Sliding = loại request cũ liên tục."
+    },
+    {
+      level: "Khó",
+      q: "Cache Inconsistency trong multi-pod deployment: khi nào xảy ra? Giải pháp?",
+      options: [
+        "Xảy ra khi Redis Cluster có số node chẵn làm split-brain trong quá trình leader election",
+        "Xảy ra khi Pod A invalidate cache → Pod B đọc DB replica lag (chưa sync) → cache stale data. Giải pháp: event-driven invalidation, version field trong cache, hoặc TTL ngắn",
+        "Chỉ xảy ra khi dùng Redis Sentinel, Redis Cluster tự động xử lý consistency",
+        "Xảy ra khi 2 pod cùng write vào cùng cache key nhưng Redis single-thread xử lý tuần tự nên không có vấn đề"
+      ],
+      answer: 1,
+      explanation: "Race: Pod A write DB → invalidate cache → Pod B cache miss → read DB replica (chưa sync write của A) → cache stale value. Giải pháp: (1) Kafka publish cache-invalidation event, (2) Version/ETag trong cache value, (3) TTL ngắn hơn replication lag."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

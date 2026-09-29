@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 03 – API Gateway & Load Balancing</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>03. API Gateway &amp; Load Balancing</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "API Gateway đóng vai trò gì trong kiến trúc Microservice?",
+      options: [
+        "Database trung tâm lưu trữ routing table và metadata của toàn bộ service",
+        "Message Broker để giao tiếp bất đồng bộ giữa các service với nhau",
+        "Single Entry Point – điểm tiếp nhận duy nhất cho mọi request từ client bên ngoài",
+        "Service Registry để lưu trữ địa chỉ IP và port của tất cả service đang chạy"
+      ],
+      answer: 2,
+      explanation: "API Gateway = cổng duy nhất client biết đến. Client gọi 1 địa chỉ Gateway, Gateway lo routing đến đúng service phía sau. Giấu toàn bộ topology nội bộ khỏi client."
+    },
+    {
+      level: "Dễ",
+      q: "3 khái niệm cốt lõi của Spring Cloud Gateway là gì?",
+      options: [
+        "Controller, Service, Repository – MVC pattern áp dụng cho Gateway layer",
+        "Producer, Consumer, Broker – kiến trúc message-driven trong API Gateway",
+        "Route, Predicate, Filter – khối xây dựng cơ bản của mọi routing rule",
+        "Request, Response, Error – 3 giai đoạn vòng đời của HTTP request trong Gateway"
+      ],
+      answer: 2,
+      explanation: "Route = ID + URI + Predicates + Filters. Predicate = điều kiện khớp (path, method, header). Filter = can thiệp request/response (pre: trước forward, post: sau forward)."
+    },
+    {
+      level: "Dễ",
+      q: "Tiền tố 'lb://' trong URI của Spring Cloud Gateway route có nghĩa gì?",
+      options: [
+        "Linux Bash script path – chỉ định file script để xử lý routing logic",
+        "Local Binding – kết nối trực tiếp đến service chạy trên cùng host với Gateway",
+        "Load Balanced – tra service name trong Eureka, áp Round Robin, forward đến instance thực tế",
+        "Log Buffer – ghi log request trước khi forward đến downstream service"
+      ],
+      answer: 2,
+      explanation: "lb:// = Load Balanced prefix. Gateway dùng Spring Cloud LoadBalancer tra Eureka → lấy danh sách instance → Round Robin chọn 1 → rewrite URI sang http://IP:Port thực → forward."
+    },
+    {
+      level: "Dễ",
+      q: "StripPrefix=1 filter trong Spring Cloud Gateway làm gì?",
+      options: [
+        "Thêm 1 path segment vào đầu URL request trước khi forward đến service",
+        "Giới hạn 1 request mỗi giây từ mỗi IP nguồn (rate limiting cơ bản)",
+        "Cắt bỏ 1 path segment đầu tiên khỏi URL trước khi forward đến service",
+        "Bỏ qua lần request đầu tiên và chỉ xử lý từ request thứ 2 trở đi"
+      ],
+      answer: 2,
+      explanation: "StripPrefix=1: /api/orders/123 → /orders/123 (bỏ '/api'). Client gọi /api/... nhưng service nội bộ không cần khai báo /api prefix trong @RequestMapping."
+    },
+    {
+      level: "Dễ",
+      q: "Thuật toán Load Balancing mặc định của Spring Cloud LoadBalancer là gì?",
+      options: [
+        "Random – chọn ngẫu nhiên 1 instance từ danh sách có sẵn",
+        "Round Robin – luân chuyển request tuần tự qua từng instance theo vòng tròn",
+        "Least Connections – chọn instance đang có ít connection đang mở nhất",
+        "IP Hash – hash IP của client để luôn route đến cùng 1 instance"
+      ],
+      answer: 1,
+      explanation: "Spring Cloud LoadBalancer mặc định dùng Round Robin: A → B → C → A → ... Có thể custom bằng cách implement ReactorLoadBalancer<ServiceInstance>."
+    },
+    {
+      level: "Dễ",
+      q: "API Gateway hoạt động ở tầng nào của mô hình OSI?",
+      options: [
+        "Layer 2 – Data Link, xử lý địa chỉ MAC và framing của packet",
+        "Layer 3 – Network, xử lý địa chỉ IP và routing giữa các subnet",
+        "Layer 4 – Transport, xử lý TCP/UDP connection và port number",
+        "Layer 7 – Application, hiểu HTTP path, headers, method, body đầy đủ"
+      ],
+      answer: 3,
+      explanation: "Layer 7 (Application): API Gateway đọc và hiểu cấu trúc HTTP – path (/api/orders), headers (Authorization), method (GET/POST), body. Load Balancer thuần túy thường ở Layer 4 (TCP)."
+    },
+    {
+      level: "Dễ",
+      q: "Pre-filter trong Spring Cloud Gateway thực thi khi nào? Use case là gì?",
+      options: [
+        "Sau khi nhận response từ downstream service và trước khi gửi về client",
+        "Trước khi forward request – dùng cho Authentication, Rate Limiting, Header injection",
+        "Mỗi 30 giây định kỳ để kiểm tra trạng thái các route đang cấu hình",
+        "Chỉ khi có lỗi từ downstream service để xử lý error response"
+      ],
+      answer: 1,
+      explanation: "Pre-filter chạy TRƯỚC khi forward. Use case: (1) Check JWT token (nếu invalid → trả 401 ngay), (2) Rate Limit (nếu vượt quota → 429), (3) Inject X-User-Id header từ token đã decode."
+    },
+    {
+      level: "Dễ",
+      q: "Lợi ích của 'SSL Termination' tại API Gateway là gì?",
+      options: [
+        "Tạo chứng chỉ SSL tự động cho tất cả service nội bộ trong hệ thống",
+        "Giải mã HTTPS tập trung tại Gateway; service nội bộ chỉ cần HTTP, giảm tải CPU cho service",
+        "Mã hóa dữ liệu lưu trong database theo chuẩn TLS 1.3 tại tầng ứng dụng",
+        "Ngăn chặn tấn công Man-in-the-Middle giữa các service trong mạng private"
+      ],
+      answer: 1,
+      explanation: "SSL Termination: Client → HTTPS → Gateway (decrypt) → HTTP → Services nội bộ. Service không phải TLS handshake (tốn CPU). Chứng chỉ quản lý tập trung tại 1 nơi."
+    },
+    {
+      level: "Trung bình",
+      q: "Phân biệt Pre-filter và Post-filter: use case thực tế của từng loại?",
+      options: [
+        "Pre-filter xử lý GET request; Post-filter xử lý POST/PUT/DELETE request",
+        "Pre-filter dùng cho database query; Post-filter dùng cho render HTML response",
+        "Pre-filter: Authentication, Rate Limiting, Header injection. Post-filter: Log latency, thêm security headers, gắn Trace-ID vào response",
+        "Pre-filter chỉ chạy trong development; Post-filter chỉ chạy trong production"
+      ],
+      answer: 2,
+      explanation: "Pre-filter (trước forward): JWT check, rate limit, gắn X-User-Id từ decoded token. Post-filter (sau nhận response): đo latency (endTime-startTime), log status code, thêm CORS/security headers."
+    },
+    {
+      level: "Trung bình",
+      q: "Khi nào nên chọn Least Connections thay vì Round Robin?",
+      options: [
+        "Khi tất cả instance có cùng cấu hình phần cứng và request time xấp xỉ nhau",
+        "Khi chỉ có 2 instance và traffic thấp, không cần thuật toán phức tạp",
+        "Khi thời gian xử lý request chênh lệch lớn – ví dụ xuất báo cáo 30s vs xem đơn hàng 50ms",
+        "Khi dùng Kubernetes Service vì Kubernetes mặc định đã dùng thuật toán này"
+      ],
+      answer: 2,
+      explanation: "Least Connections chọn instance ít active connections nhất. Phù hợp khi request time khác nhau lớn: xuất PDF/Excel (30s), WebSocket, Video Streaming. Round Robin phân đều tốt hơn khi request time đồng đều."
+    },
+    {
+      level: "Trung bình",
+      q: "API Gateway giúp giảm số lượng round-trip từ Mobile App qua kỹ thuật nào?",
+      options: [
+        "HTTP/2 multiplexing – nhiều request đi trên cùng 1 TCP connection, giảm overhead",
+        "API Composition (BFF Pattern) – Gateway gọi nhiều service, tổng hợp rồi trả 1 response duy nhất",
+        "WebSocket long-polling – giữ kết nối mở để đẩy update mà không cần client poll",
+        "Response compression – nén JSON bằng gzip trước khi gửi về mobile client"
+      ],
+      answer: 1,
+      explanation: "BFF (Backend For Frontend): Mobile cần data từ User + Order + Product. Nếu gọi trực tiếp: 3 round-trips (chậm trên mạng 4G). Gateway aggregate: 1 round-trip, Gateway xử lý nội bộ 3 calls song song."
+    },
+    {
+      level: "Trung bình",
+      q: "Rate Limiting ở API Gateway bảo vệ hệ thống khỏi điều gì cụ thể?",
+      options: [
+        "SQL Injection và XSS attack từ user nhập dữ liệu độc hại vào form",
+        "Memory leak trong JVM của backend service gây hết tài nguyên server",
+        "Spam, DDoS, API abuse – giới hạn số request/phút theo IP hoặc API Key",
+        "Database deadlock khi nhiều service cùng update 1 row trong database"
+      ],
+      answer: 2,
+      explanation: "Rate Limiting: ví dụ 100 req/phút/IP. Vượt → 429 Too Many Requests. Bảo vệ khỏi: brute-force auth, credential stuffing, DDoS volumetric, API scraping, bot abuse."
+    },
+    {
+      level: "Trung bình",
+      q: "Weighted Round Robin dùng khi nào? Ví dụ cấu hình thực tế?",
+      options: [
+        "Khi cần random hoàn toàn để phân bổ traffic không thể đoán trước được",
+        "Khi các instance có cấu hình không đồng đều – server 16GB nhận 3 phần, server 4GB nhận 1 phần",
+        "Khi chỉ có 2 instance và muốn một instance làm primary, một làm backup",
+        "Khi dùng Kubernetes HPA và muốn Kubernetes tự quyết định weight cho mỗi pod"
+      ],
+      answer: 1,
+      explanation: "Weighted Round Robin: gán weight theo capacity. Ví dụ: Server A (16GB) weight=3 nhận 50%, Server B (8GB) weight=2 nhận 33%, Server C (4GB) weight=1 nhận 17% traffic."
+    },
+    {
+      level: "Khó",
+      q: "So sánh API Gateway và Load Balancer thuần túy (HAProxy/AWS NLB). Có thể thay thế nhau không?",
+      options: [
+        "API Gateway là phiên bản nâng cấp hoàn toàn của Load Balancer, hai thứ giống nhau",
+        "Load Balancer bảo mật hơn API Gateway vì hoạt động ở tầng network, khó tấn công hơn",
+        "Gateway: Layer 7, routing phức tạp, có Auth/Transform. LB: Layer 4, phân phối TCP. Thực tế hay kết hợp: Client → NLB → API Gateway Cluster → Services",
+        "Chỉ cần 1 trong 2, chọn API Gateway vì nó bao gồm tính năng Load Balancing sẵn"
+      ],
+      answer: 2,
+      explanation: "Không thay thế nhau – bổ sung nhau. LB: phân phối traffic vào cụm Gateway (L4, nhanh, ổn định). Gateway: xử lý business logic routing, auth, rate limit (L7, thông minh). Kết hợp = tối ưu."
+    },
+    {
+      level: "Khó",
+      q: "Để đảm bảo Sticky Session (cùng user luôn vào cùng instance), nên dùng thuật toán nào?",
+      options: [
+        "Round Robin với session replication giữa các instance",
+        "Least Connections vì instance ít tải nhất sẽ tự nhiên giữ user lâu hơn",
+        "Random với đủ nhiều request thì về mặt thống kê sẽ phân bổ đều",
+        "IP Hash / Consistent Hashing – hash IP client → luôn route đến cùng instance"
+      ],
+      answer: 3,
+      explanation: "IP Hash: hash(clientIP) % numInstances = index. Cùng IP → cùng index → cùng instance. Dùng cho stateful session, WebSocket, Local Cache per instance. Consistent Hashing thêm khả năng min-disruption khi thêm/xóa node."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao API Gateway có thể trở thành bottleneck? Giải pháp nào phù hợp nhất?",
+      options: [
+        "Gateway viết bằng Java nên chậm hơn Go/Rust; giải pháp là viết lại bằng ngôn ngữ khác",
+        "Gateway xử lý 100% traffic; nếu không đủ tài nguyên sẽ làm cả hệ thống chậm. Giải pháp: Cluster nhiều instance, async/reactive processing, caching, Circuit Breaker",
+        "Gateway bottleneck chỉ xảy ra khi SSL Termination bật, tắt SSL sẽ giải quyết hoàn toàn",
+        "Tăng RAM của server chạy Gateway là giải pháp đủ và đơn giản nhất"
+      ],
+      answer: 1,
+      explanation: "Gateway nhận 100% traffic → phải scale. Giải pháp: (1) Horizontal scaling nhiều Gateway instance sau LB, (2) Reactive (Spring Cloud Gateway dùng Netty non-blocking), (3) Cache response phổ biến, (4) Circuit Breaker chống chờ lâu."
+    },
+    {
+      level: "Khó",
+      q: "Load Balancing hỗ trợ Zero-Downtime Deployment bằng cách nào?",
+      options: [
+        "LB tắt tất cả instance vào ban đêm và deploy toàn bộ version mới cùng lúc",
+        "LB không liên quan đến deployment, zero-downtime phụ thuộc hoàn toàn vào Kubernetes",
+        "LB rút traffic khỏi instance cần upgrade (connection draining), deploy xong, health check pass xong mới cho nhận traffic lại – Rolling Update hoặc Blue-Green",
+        "LB tự động clone instance mới với version cũ để backup trước khi cho phép deploy version mới"
+      ],
+      answer: 2,
+      explanation: "Rolling Update: LB rút 1 instance → deploy mới → health check OK → đưa vào pool → lặp. Blue-Green: chuẩn bị cụm mới (green) → switch traffic từ cụm cũ (blue) ngay lập tức → zero downtime."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

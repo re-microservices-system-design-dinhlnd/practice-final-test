@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 04 – Giao tiếp đồng bộ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>04. Giao tiếp đồng bộ (RestTemplate, FeignClient)</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "Giao tiếp đồng bộ (Synchronous) trong Microservice có đặc điểm CHÍNH nào?",
+      options: [
+        "Message được lưu bền vững trong queue để xử lý sau khi tải giảm xuống",
+        "Giao tiếp qua file system được mount chung giữa các service container",
+        "Service A gửi request và PHẢI ĐỢI response từ Service B mới tiếp tục xử lý",
+        "Hai service trao đổi dữ liệu theo chu kỳ mà không cần biết nhau đang chạy hay không"
+      ],
+      answer: 2,
+      explanation: "Synchronous = Request/Response blocking. Service A block thread chờ Service B. Tight coupling về thời gian – cả 2 phải UP cùng lúc. Nếu B chậm → A bị block → nguy cơ Thread Starvation."
+    },
+    {
+      level: "Dễ",
+      q: "Annotation nào cần thiết để bật FeignClient trong Spring Boot? Đặt ở đâu?",
+      options: [
+        "@EnableRestTemplate đặt trên Main class để Spring quét @RestTemplate annotation",
+        "@EnableFeignClients đặt trên Main class (hoặc @Configuration) để Spring tạo proxy cho @FeignClient interface",
+        "@EnableOpenFeign đặt trên từng @FeignClient interface để activate individual client",
+        "@FeignEnable đặt trên service class có inject FeignClient để enable lazy initialization"
+      ],
+      answer: 1,
+      explanation: "@EnableFeignClients trên Main class: Spring quét classpath tìm @FeignClient interface → tạo proxy implementation. Có thể chỉ định basePackages nếu interface nằm ngoài package chính."
+    },
+    {
+      level: "Dễ",
+      q: "Điểm khác biệt CỐT LÕI giữa FeignClient và RestTemplate là gì?",
+      options: [
+        "FeignClient chỉ hỗ trợ GET và POST, RestTemplate hỗ trợ đầy đủ tất cả HTTP method",
+        "FeignClient là Declarative – khai báo interface, Spring tự tạo implementation; RestTemplate là Imperative – viết code URL/method tường minh",
+        "RestTemplate mới hơn FeignClient và đang được Spring phát triển tích cực hơn",
+        "FeignClient chỉ hoạt động với Eureka, RestTemplate dùng được với mọi HTTP endpoint"
+      ],
+      answer: 1,
+      explanation: "FeignClient: định nghĩa interface với @GetMapping/@PostMapping → Spring tạo dynamic proxy implementation. RestTemplate: phải build URL string, set HttpEntity, gọi exchange()/getForObject() thủ công."
+    },
+    {
+      level: "Dễ",
+      q: "Fallback trong FeignClient có tác dụng gì?",
+      options: [
+        "Backup request vào file log khi service đích không phản hồi đủ nhanh",
+        "Khi service đích down/timeout, trả về dữ liệu mặc định thay vì throw exception để tránh cascade failure",
+        "Chuyển request sang phương thức HTTP khác khi phương thức hiện tại bị service từ chối",
+        "Cache response của request cuối cùng thành công để dùng khi service đích tạm unavailable"
+      ],
+      answer: 1,
+      explanation: "Fallback = Graceful Degradation. UserService down → Fallback trả UserDTO(name='Unknown') → OrderService vẫn hoạt động bình thường. Tránh exception propagate lên làm OrderService cũng crash."
+    },
+    {
+      level: "Dễ",
+      q: "restTemplate.exchange() có ưu điểm gì so với restTemplate.getForObject()?",
+      options: [
+        "exchange() nhanh hơn getForObject() vì dùng HTTP/2 thay vì HTTP/1.1",
+        "exchange() hỗ trợ mọi HTTP Method, custom headers, trả ResponseEntity với status code và headers đầy đủ",
+        "exchange() tự động retry 3 lần khi nhận HTTP 5xx từ server đích",
+        "exchange() không cần @LoadBalanced vì tự tích hợp Eureka service discovery"
+      ],
+      answer: 1,
+      explanation: "exchange() = full HTTP control: (1) Mọi method (GET/POST/PUT/DELETE/PATCH), (2) Custom HttpHeaders (Authorization, X-Trace-Id), (3) ResponseEntity<T> có statusCode + headers, (4) ParameterizedTypeReference cho generic List<T>."
+    },
+    {
+      level: "Dễ",
+      q: "Khi FeignClient nhận HTTP 404 từ service đích, mặc định xảy ra điều gì?",
+      options: [
+        "FeignClient trả về null và không throw exception để caller tự xử lý",
+        "FeignClient trả về empty Optional<T> theo convention của Spring Data",
+        "FeignClient ném feign.FeignException.NotFound cho caller xử lý",
+        "FeignClient tự động retry 3 lần rồi mới kết luận là 404"
+      ],
+      answer: 2,
+      explanation: "ErrorDecoder.Default: 4xx → FeignException subclass. 400→BadRequest, 404→NotFound, 500→InternalServerError. Custom bằng cách implement ErrorDecoder hoặc bật decode404=true."
+    },
+    {
+      level: "Dễ",
+      q: "Khi nào KHÔNG nên dùng giao tiếp đồng bộ REST giữa các Microservice?",
+      options: [
+        "Khi cần xác thực thông tin user trước khi tạo đơn hàng trong database",
+        "Khi cần kiểm tra số dư tài khoản trước khi cho phép thanh toán",
+        "Khi tác vụ tốn thời gian như gửi email, xuất báo cáo Excel, xử lý video encoding",
+        "Khi cần lấy thông tin sản phẩm để hiển thị lên trang chi tiết cho user"
+      ],
+      answer: 2,
+      explanation: "Tác vụ long-running (gửi email 2s, xuất PDF 30s) nên dùng Async (Kafka): gọi xong trả 202 Accepted ngay, service khác xử lý background. REST sync phù hợp khi cần kết quả ngay để tiếp tục flow."
+    },
+    {
+      level: "Dễ",
+      q: "Logger.Level.FULL trong FeignClient log những gì? Tại sao không dùng trong production?",
+      options: [
+        "Log toàn bộ thông tin JVM (heap, thread), không log HTTP vì cần thêm cấu hình riêng",
+        "Log URL và HTTP Method; không dùng production vì tốn quá nhiều CPU để format log",
+        "Log đầy đủ URL, Method, Request+Response Headers và Body; tránh production vì leak dữ liệu nhạy cảm và giảm I/O performance",
+        "Log chỉ các response Body; không dùng production vì làm tăng kích thước log file quá nhanh"
+      ],
+      answer: 2,
+      explanation: "FULL = toàn bộ cả 2 chiều. Nguy cơ production: token JWT, số thẻ tín dụng, mật khẩu có thể xuất hiện trong log file. Ngoài ra, log I/O heavy làm tăng latency đáng kể."
+    },
+    {
+      level: "Trung bình",
+      q: "Implement FeignClient Fallback cần đúng bao nhiêu bước theo đúng thứ tự?",
+      options: [
+        "1 bước: thêm fallback=ClassName.class vào annotation @FeignClient là xong",
+        "2 bước: tạo class implement interface + gắn vào @FeignClient annotation",
+        "3 bước: tạo @Component class implements interface, gắn fallback=..., bật circuitbreaker.enabled=true trong YAML",
+        "4 bước: tạo class, thêm annotation, cấu hình YAML, restart service để apply"
+      ],
+      answer: 2,
+      explanation: "3 bước bắt buộc: (1) @Component class implements UserServiceClient với default values, (2) @FeignClient(fallback=UserClientFallback.class), (3) YAML: spring.cloud.openfeign.circuitbreaker.enabled=true. Thiếu bất kỳ bước nào → fallback không hoạt động."
+    },
+    {
+      level: "Trung bình",
+      q: "@RequestHeader và @RequestParam trong FeignClient interface dùng như thế nào?",
+      options: [
+        "@RequestHeader = đọc header từ incoming request; @RequestParam = đọc query param từ incoming request",
+        "@RequestHeader đính kèm dữ liệu vào HTTP Header gửi đi; @RequestParam nối tham số vào Query String (?key=value)",
+        "@RequestHeader chỉ dùng được với GET; @RequestParam chỉ dùng được với POST",
+        "@RequestHeader = path variable trong URL; @RequestParam = JSON field trong request body"
+      ],
+      answer: 1,
+      explanation: "FeignClient là CLIENT (gửi request). @RequestHeader('Authorization') String token → Header: Authorization: Bearer xxx khi gửi. @RequestParam('page') int p → URL: /products?page=0 khi gửi."
+    },
+    {
+      level: "Trung bình",
+      q: "RestTemplate bị deprecated từ Spring 5 vì lý do gì? Thay thế bằng gì?",
+      options: [
+        "RestTemplate không hỗ trợ JSON và chỉ xử lý được plain text response từ server",
+        "RestTemplate chỉ chạy trên Java 8, không tương thích Java 11+ và các version mới hơn",
+        "RestTemplate là blocking (1 thread = 1 request), không scale tốt khi concurrent cao; thay bằng WebClient (reactive/non-blocking) hoặc RestClient (Spring 6+)",
+        "RestTemplate không tích hợp được với Eureka Service Discovery một cách tự nhiên"
+      ],
+      answer: 2,
+      explanation: "RestTemplate dùng ThreadPool blocking model: N concurrent requests = N blocked threads. Thread Starvation khi concurrent cao. WebClient dùng Netty event loop: ít thread xử lý nhiều request concurrent."
+    },
+    {
+      level: "Trung bình",
+      q: "ParameterizedTypeReference trong restTemplate.exchange() giải quyết vấn đề Java nào?",
+      options: [
+        "Giải quyết circular dependency giữa các Bean trong Spring Application Context",
+        "Giải quyết Java Type Erasure: giữ thông tin generic type List<ProductDTO> lúc runtime khi Java xóa mất nó",
+        "Giải quyết NullPointerException khi response body trống hoặc service trả 204 No Content",
+        "Giải quyết ClassCastException khi map JSON response sang đối tượng Java không đúng kiểu"
+      ],
+      answer: 1,
+      explanation: "Java Type Erasure: List<ProductDTO>.class không hợp lệ vì Java xóa generic type lúc runtime. ParameterizedTypeReference<List<ProductDTO>>{} dùng anonymous class để capture generic type information."
+    },
+    {
+      level: "Trung bình",
+      q: "Khi nào vẫn nên dùng RestTemplate thay vì FeignClient?",
+      options: [
+        "Khi gọi internal service trong cùng hệ thống Spring Cloud vì RestTemplate nhẹ hơn",
+        "Khi cần gọi API bên thứ 3 không thuộc Eureka, cần custom SSL socket phức tạp, streaming file lớn",
+        "Khi service không có Eureka registration và FeignClient không biết resolve service name",
+        "Khi muốn code ngắn gọn vì RestTemplate ít boilerplate hơn FeignClient interface"
+      ],
+      answer: 1,
+      explanation: "FeignClient ưu tiên cho inter-service nội bộ. RestTemplate/WebClient phù hợp: gọi Stripe API, Google API (ngoài Eureka), streaming large file, custom SSL/TLS certificate pinning, proxy đặc thù."
+    },
+    {
+      level: "Khó",
+      q: "FeignClient tích hợp Eureka và Load Balancing tự động như thế nào?",
+      options: [
+        "Cần thêm @LoadBalanced annotation lên method trong @FeignClient interface",
+        "Cần cấu hình riêng file feign-loadbalancer.yml với danh sách instance của service",
+        "Thuộc tính 'name' trong @FeignClient = Service ID trên Eureka; Spring Cloud tự tra Eureka, lấy IP:Port, áp Round Robin mà không cần code thêm",
+        "FeignClient không tích hợp Eureka mặc định, phải thêm dependency feign-eureka-adapter"
+      ],
+      answer: 2,
+      explanation: "@FeignClient(name='user-service'): Spring Cloud dùng 'user-service' tra Eureka → list instance IP:Port → Spring Cloud LoadBalancer Round Robin chọn 1 → tạo HTTP request. Hoàn toàn transparent với developer."
+    },
+    {
+      level: "Khó",
+      q: "Cascade Failure trong Synchronous communication: nguyên nhân gốc rễ là gì?",
+      options: [
+        "Database connection pool bị cạn khi quá nhiều service đọc ghi cùng lúc",
+        "A gọi B chậm → A's threads block chờ B. Nhiều request → Thread Pool A cạn kiệt (Thread Starvation) → A crash → C gọi A cũng crash. Nguyên nhân: blocking I/O giữ thread lâu",
+        "Network bandwidth giữa các service bị nghẽn cổ chai khi traffic cao điểm",
+        "JVM Garbage Collection pause quá lâu làm các service không thể xử lý request"
+      ],
+      answer: 1,
+      explanation: "Thread Pool Exhaustion: A có 200 threads. B bị chậm 30s → 200 request đến A → 200 threads blocked → request thứ 201 reject. Giải pháp: Circuit Breaker + Timeout + Bulkhead để giới hạn impact."
+    },
+    {
+      level: "Khó",
+      q: "feign.client.config.default.decode404=true thay đổi hành vi FeignClient thế nào?",
+      options: [
+        "Tự động retry khi nhận 404 với exponential backoff",
+        "Convert 404 thành 200 OK để caller không biết entity không tồn tại",
+        "Khi nhận 404, KHÔNG ném FeignException.NotFound mà decode response body bình thường, thường trả null",
+        "Ghi log cảnh báo khi nhận 404 nhưng vẫn throw exception như bình thường"
+      ],
+      answer: 2,
+      explanation: "decode404=true: 404 được xử lý như response bình thường (không là error). Phù hợp khi 404 là valid business case ('entity không tồn tại') chứ không phải lỗi hệ thống. Method có thể trả Optional.empty() hoặc null."
+    },
+    {
+      level: "Khó",
+      q: "Khi FeignClient nhận 500 từ service đích và có Fallback, chuỗi xử lý diễn ra theo thứ tự nào?",
+      options: [
+        "500 → retry 3 lần → sau 3 lần fail → gọi Fallback method → trả kết quả",
+        "500 → FeignException.InternalServerError → Circuit Breaker intercept → Fallback method → trả default response",
+        "500 → log error → trả null cho caller để caller tự xử lý theo business logic",
+        "500 → throw RuntimeException → Spring ExceptionHandler bắt → trả 503 cho client"
+      ],
+      answer: 1,
+      explanation: "Flow: 500 response → ErrorDecoder ném FeignException → Circuit Breaker/Resilience4j intercept → gọi fallback method → fallback trả default value → caller nhận graceful degraded response."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao cần khai báo tường minh @PathVariable('id') thay vì chỉ @PathVariable trong FeignClient?",
+      options: [
+        "Vì Feign chỉ nhận String, cần mapping tên để convert sang Long",
+        "Thiếu tên tường minh thì Feign không biết map parameter vào placeholder nào trong URL",
+        "Vì nếu thiếu tên, Feign sẽ dùng tên class của parameter thay vì tên variable",
+        "Không bắt buộc, chỉ là convention để code rõ ràng hơn khi nhiều PathVariable"
+      ],
+      answer: 1,
+      explanation: "Khi compile không có flag -parameters, Java xóa tên tham số. Feign không biết @PathVariable nào map vào {id}. Tường minh @PathVariable('id') → Feign luôn biết cách map đúng. Đây là lỗi runtime phổ biến."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

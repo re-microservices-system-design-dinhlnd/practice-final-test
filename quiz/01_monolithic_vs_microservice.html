@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 01 – Monolithic vs Microservice</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>01. Monolithic vs Microservice</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "Đặc điểm CHÍNH của kiến trúc Monolithic là gì?",
+      options: [
+        "Ứng dụng chia nhiều service nhỏ, mỗi service deploy riêng biệt hoàn toàn",
+        "Toàn bộ ứng dụng đóng gói và triển khai như một đơn vị duy nhất (single deployable unit)",
+        "Mỗi module dùng ngôn ngữ lập trình riêng, giao tiếp qua REST API nội bộ",
+        "Ứng dụng chia thành Frontend, Backend và Database, deploy trên 3 server khác nhau"
+      ],
+      answer: 1,
+      explanation: "Monolithic: toàn bộ UI, Business Logic, Data Access đóng gói trong 1 artifact (jar/war) duy nhất, chạy trong 1 process."
+    },
+    {
+      level: "Dễ",
+      q: "Ưu điểm lớn nhất của Monolithic so với Microservice là gì?",
+      options: [
+        "Có thể scale từng chức năng riêng biệt khi tải tăng đột biến",
+        "Fault isolation tốt – 1 module lỗi không ảnh hưởng toàn hệ thống",
+        "Đơn giản để phát triển và debug, giao tiếp in-process không có Network Latency",
+        "Hỗ trợ Polyglot Tech Stack – mỗi module dùng công nghệ tối ưu nhất cho bài toán của nó"
+      ],
+      answer: 2,
+      explanation: "Monolithic giao tiếp In-process (gọi hàm trực tiếp trong JVM), không bị Network Latency và rất dễ debug trên cùng 1 codebase."
+    },
+    {
+      level: "Dễ",
+      q: "Nguyên tắc 'Database per Service' trong Microservice có nghĩa là gì?",
+      options: [
+        "Mỗi service dùng ít nhất 2 database để đảm bảo High Availability và failover",
+        "Tất cả service chia sẻ 1 database chung nhưng dùng schema riêng biệt theo tên service",
+        "Mỗi service có database riêng, truy cập dữ liệu service khác phải qua API của service đó",
+        "Chỉ service chính mới có database, các service phụ dùng In-memory cache để lưu dữ liệu"
+      ],
+      answer: 2,
+      explanation: "Mỗi service sở hữu database riêng → loose coupling. Service B muốn dữ liệu của A phải gọi qua API, không truy cập trực tiếp DB của A."
+    },
+    {
+      level: "Dễ",
+      q: "Nhược điểm nào KHÔNG thuộc về kiến trúc Monolithic?",
+      options: [
+        "Single Point of Failure – 1 bug có thể làm sập toàn bộ ứng dụng",
+        "Scale khó khăn – phải scale toàn bộ app dù chỉ 1 module cần tài nguyên thêm",
+        "Network Latency cao giữa các module do giao tiếp qua HTTP nội bộ",
+        "Tech lock-in – khó thay đổi công nghệ khi codebase ngày càng lớn"
+      ],
+      answer: 2,
+      explanation: "Monolithic giao tiếp In-process (gọi hàm trong cùng JVM) nên KHÔNG có Network Latency. Đây là ưu điểm, không phải nhược điểm của Monolithic."
+    },
+    {
+      level: "Dễ",
+      q: "CAP Theorem gồm những đặc tính nào?",
+      options: [
+        "Clustering, Availability, Performance – đo hiệu năng hệ thống phân tán theo 3 chiều",
+        "Consistency, Atomicity, Partition – 3 thuộc tính giao dịch phân tán cần đảm bảo",
+        "Consistency, Availability, Partition Tolerance – hệ thống phân tán chỉ đảm bảo được 2/3",
+        "Cache, Async, Processing – 3 kỹ thuật tối ưu hiệu năng Microservice phổ biến nhất"
+      ],
+      answer: 2,
+      explanation: "CAP: Consistency (tính nhất quán) + Availability (tính sẵn sàng) + Partition Tolerance (chịu lỗi mạng). Hệ thống phân tán chỉ đảm bảo được 2 trong 3."
+    },
+    {
+      level: "Dễ",
+      q: "Microservice thường chọn đặc tính nào trong CAP Theorem và tại sao?",
+      options: [
+        "CA (Consistency + Availability) – ưu tiên tính nhất quán và sẵn sàng tuyệt đối",
+        "CP (Consistency + Partition Tolerance) – ưu tiên dữ liệu chính xác hơn uptime",
+        "AP (Availability + Partition Tolerance) – chấp nhận Eventual Consistency để luôn phục vụ được user",
+        "Cả 3 CAP đều đảm bảo được nhờ kỹ thuật replication hiện đại"
+      ],
+      answer: 2,
+      explanation: "Partition (lỗi mạng) là tất yếu trong distributed system → P bắt buộc. Microservice chọn AP: ưu tiên 24/7 availability, chấp nhận data có độ trễ đồng bộ ngắn (Eventual Consistency)."
+    },
+    {
+      level: "Dễ",
+      q: "Khi nào KHÔNG nên áp dụng kiến trúc Microservice?",
+      options: [
+        "Khi team có hơn 10 developer và domain nghiệp vụ đã rõ ràng, ổn định",
+        "Khi cần deploy thường xuyên và các tính năng cần được release độc lập",
+        "Khi team nhỏ, startup giai đoạn đầu, domain chưa rõ và không có DevOps",
+        "Khi các phần của ứng dụng có nhu cầu scale và yêu cầu công nghệ khác nhau"
+      ],
+      answer: 2,
+      explanation: "Martin Fowler: 'Start with a monolith.' Microservice phức tạp hơn Monolithic rất nhiều. Tách sai domain giai đoạn đầu (khi chưa hiểu rõ business) sẽ rất tốn kém để refactor sau."
+    },
+    {
+      level: "Dễ",
+      q: "Vấn đề 'Single Point of Failure' trong Monolithic xảy ra như thế nào?",
+      options: [
+        "Database bị hỏng khiến toàn bộ ứng dụng không đọc/ghi được dữ liệu",
+        "1 module bị lỗi nghiêm trọng (memory leak, infinite loop) trong JVM khiến toàn bộ app sập",
+        "Network latency giữa các module tăng cao khiến hệ thống phản hồi chậm",
+        "Quá nhiều developer commit code đồng thời gây ra conflict không giải quyết được"
+      ],
+      answer: 1,
+      explanation: "Monolithic: tất cả module chạy trong 1 JVM process. 1 module OOM (Out of Memory) hoặc deadlock → JVM bị kill → tất cả module ngừng hoạt động."
+    },
+    {
+      level: "Trung bình",
+      q: "Shared Database Anti-pattern trong Microservice gây ra hậu quả gì nghiêm trọng nhất?",
+      options: [
+        "Dữ liệu bị mã hóa hai lần làm giảm hiệu năng đọc và tăng độ trễ phản hồi",
+        "Mỗi service phải có Load Balancer riêng dẫn đến chi phí hạ tầng tăng cao",
+        "Thay đổi schema của service A có thể crash service B và tạo SPOF, tranh chấp Connection Pool",
+        "Service không thể giao tiếp qua REST API vì thiếu độc lập về network layer"
+      ],
+      answer: 2,
+      explanation: "Shared DB: Team A đổi tên cột → Service B crash ngay. Query chậm của A cạn Connection Pool → B, C, D không kết nối được DB → toàn hệ thống chết theo."
+    },
+    {
+      level: "Trung bình",
+      q: "Eventual Consistency là gì? Ví dụ thực tế nào thể hiện rõ nhất?",
+      options: [
+        "Dữ liệu luôn nhất quán ngay lập tức trên mọi node sau mỗi thao tác ghi",
+        "Dữ liệu có độ trễ đồng bộ ngắn nhưng cuối cùng nhất quán. Ví dụ: Like Facebook, trạng thái đơn hàng",
+        "Dữ liệu chỉ nhất quán khi người dùng refresh trang sau ít nhất 10 giây",
+        "Dữ liệu không bao giờ nhất quán 100% trong Microservice, phải chấp nhận sai lệch"
+      ],
+      answer: 1,
+      explanation: "Eventual Consistency: nếu không có update mới, tất cả bản sao sẽ hội tụ về cùng trạng thái. Like Facebook (số like cập nhật sau vài giây) là ví dụ điển hình được chấp nhận."
+    },
+    {
+      level: "Trung bình",
+      q: "Conway's Law liên quan đến việc thiết kế Microservice như thế nào?",
+      options: [
+        "Phần mềm phải tuân thủ chuẩn IEEE Conway về kiến trúc phân tán để đạt chứng chỉ",
+        "Phần mềm phản ánh cấu trúc giao tiếp của tổ chức tạo ra nó – team structure = service structure",
+        "Mỗi service cần triển khai trên server riêng theo tiêu chuẩn Conway về cô lập tài nguyên",
+        "Conway's Law quy định số lượng API endpoint tối đa cho mỗi Microservice trong hệ thống"
+      ],
+      answer: 1,
+      explanation: "Conway's Law: 'Organizations design systems that mirror their own communication structure.' Team lớn → chia thành nhiều team nhỏ → mỗi team sở hữu 1 service → Microservice architecture."
+    },
+    {
+      level: "Trung bình",
+      q: "Distributed Tracing cần thiết trong Microservice vì lý do gì cụ thể?",
+      options: [
+        "Để compile code nhanh hơn nhờ theo dõi thời gian build từng module",
+        "Để trace 1 request đi qua nhiều service, xác định service nào gây latency hay lỗi",
+        "Để tự động scale service khi phát hiện CPU vượt ngưỡng qua số liệu trace",
+        "Để mã hóa dữ liệu truyền giữa các service nhằm bảo mật theo tiêu chuẩn OWASP"
+      ],
+      answer: 1,
+      explanation: "Khi request đi qua 10 service, debug lỗi rất khó. Zipkin/Jaeger gắn TraceID xuyên suốt → 1 click thấy call tree, latency từng hop, service nào fail."
+    },
+    {
+      level: "Trung bình",
+      q: "Polyglot Persistence trong Microservice là gì? Cho ví dụ thực tế?",
+      options: [
+        "Sử dụng nhiều ngôn ngữ lập trình khác nhau trong cùng 1 service để tối ưu hiệu năng",
+        "Mỗi service chọn loại database tối ưu nhất cho bài toán riêng của nó: Order→PostgreSQL, Cart→Redis, Search→Elasticsearch",
+        "Lưu trữ dữ liệu song song trên nhiều cloud provider để đảm bảo không mất dữ liệu",
+        "Database tự động dịch giữa SQL và NoSQL tùy theo loại query mà service gửi đến"
+      ],
+      answer: 1,
+      explanation: "Polyglot Persistence: Order→PostgreSQL (ACID), Cart→Redis (speed), Product Search→Elasticsearch (full-text), Analytics→Cassandra (time-series). Mỗi bài toán dùng DB phù hợp nhất."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao 2PC (Two-Phase Commit) không phù hợp cho Microservice? Giải pháp thay thế?",
+      options: [
+        "2PC quá đơn giản; cần dùng 3PC cho distributed system. Thay thế bằng multi-phase REST calls",
+        "2PC yêu cầu tất cả node phải dùng cùng vendor DB như Oracle hoặc SQL Server Enterprise",
+        "2PC là blocking protocol, tạo SPOF tại Coordinator, không tương thích NoSQL/Message Broker; thay bằng Saga",
+        "2PC chỉ hoạt động được với MySQL và PostgreSQL, không hỗ trợ MongoDB hay Cassandra"
+      ],
+      answer: 2,
+      explanation: "2PC vấn đề: (1) Blocking – lock resource suốt thời gian prepare, (2) SPOF tại Coordinator, (3) Coordinator crash sau Phase 1 → deadlock. Saga thay thế bằng local transactions + compensating transactions."
+    },
+    {
+      level: "Khó",
+      q: "Hệ thống ngân hàng chuyển tiền nên chọn CP hay AP trong CAP? Lý do?",
+      options: [
+        "AP – luôn phục vụ 24/7 vì gián đoạn dịch vụ ngân hàng gây thiệt hại kinh tế lớn hơn sai số dư",
+        "CA – không cần lo Partition vì hạ tầng ngân hàng có SLA mạng 99.999% không bao giờ partition",
+        "CP – chấp nhận reject request khi partition, tuyệt đối không xử lý transaction khi có nguy cơ sai số dư",
+        "Cả 3 CAP – ngân hàng đủ ngân sách mua hạ tầng đảm bảo tất cả 3 thuộc tính cùng lúc"
+      ],
+      answer: 2,
+      explanation: "Ngân hàng: sai 1 đồng = thảm họa pháp lý. Chấp nhận 'chuyển khoản tạm dừng 5 phút' hơn là 'trừ tiền 2 lần hoặc không trừ'. CP > AP cho nghiệp vụ tài chính cốt lõi."
+    },
+    {
+      level: "Khó",
+      q: "Điều kiện cần đủ nào để nên bắt đầu tách Monolith thành Microservice?",
+      options: [
+        "Khi doanh nghiệp có budget lớn và muốn theo xu hướng công nghệ hiện đại nhất",
+        "Khi ngôn ngữ lập trình hiện tại không còn được vendor hỗ trợ và cần migration sang platform mới",
+        "Khi team >10-15 devs, domain rõ ràng, scale không đồng đều, CI/CD sẵn sàng, có năng lực DevOps",
+        "Ngay từ đầu dự án để tiết kiệm chi phí refactor sau này khi hệ thống đã phức tạp"
+      ],
+      answer: 2,
+      explanation: "5 điều kiện đồng thời: Team lớn, Domain mature/Bounded Context rõ, Scale needs khác nhau, CI/CD pipeline sẵn, DevOps team đủ năng lực. Thiếu 1 trong 5 → Monolith trước."
+    },
+    {
+      level: "Khó",
+      q: "Testing Microservice khó hơn Monolithic ở điểm nào? Giải pháp cho từng vấn đề?",
+      options: [
+        "Microservice cần IDE mạnh hơn và nhiều RAM hơn để chạy môi trường local đầy đủ",
+        "Microservice khó test vì không có framework testing nào hỗ trợ giao tiếp qua mạng",
+        "Dependency Hell, Flaky Test do async/network, khó seed data phân tán, API breaking change; giải pháp: Contract Testing, WireMock, Testcontainers",
+        "Microservice chỉ cần viết Unit Test, Integration Test không áp dụng được do phân tán"
+      ],
+      answer: 2,
+      explanation: "4 thách thức: Dependency Hell, Flaky async tests, Multi-DB seed data, Breaking API. Giải pháp: Pact/Spring Cloud Contract (contract test), WireMock (mock service), Testcontainers (tự tạo DB/Kafka thật khi test)."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao 'bắt đầu với Monolithic rồi tách dần' lại được coi là best practice?",
+      options: [
+        "Vì Microservice đắt hơn Monolithic và chỉ đáng đầu tư khi doanh nghiệp đã có doanh thu ổn định",
+        "Vì Monolithic code nhanh hơn giúp MVP ra thị trường sớm, còn Microservice cần team chuyên nghiệp",
+        "Vì domain chưa rõ → tách sai Bounded Context → distributed monolith – chi phí sửa sau cực kỳ cao; Monolith giúp discover domain trước",
+        "Vì framework Java chỉ hỗ trợ Monolithic ở giai đoạn đầu, Microservice cần Spring Cloud version mới"
+      ],
+      answer: 2,
+      explanation: "Tách sai domain = 'Distributed Monolith' – tệ nhất trong hai thế giới: complexity của Microservice nhưng coupling của Monolith. Domain discovery cần thời gian vận hành thực tế."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>

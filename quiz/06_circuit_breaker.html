@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz 06 – Circuit Breaker (Resilience4j)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="back-link" href="index.html">← Quay về danh sách chủ đề</a>
+  <h1>06. Circuit Breaker (Resilience4j)</h1>
+  <div class="score-box">
+    Đúng: <span class="correct" id="score-correct">0</span>
+    Sai: <span class="wrong" id="score-wrong">0</span>
+    Đã trả lời: <span id="score-answered">0</span> / <span class="total" id="score-total">0</span>
+    <button class="btn-reset" onclick="resetQuiz()">🔄 Làm lại</button>
+  </div>
+  <div id="quiz-container"></div>
+  <script>
+  window.QUIZ_DATA = [
+    {
+      level: "Dễ",
+      q: "Circuit Breaker có 3 trạng thái. Trạng thái nào cho phép mọi request đi qua bình thường?",
+      options: ["HALF-OPEN – thăm dò service đích đã hồi phục chưa", "OPEN – ngắt mạch hoàn toàn", "CLOSED – đóng mạch, hoạt động bình thường", "BYPASS – tạm thời bỏ qua kiểm tra để debug"],
+      answer: 2,
+      explanation: "CLOSED = mạch đóng = điện chạy qua bình thường. Mọi request đi qua, kết quả được ghi vào sliding window. Khi failure rate vượt threshold → chuyển sang OPEN."
+    },
+    {
+      level: "Dễ",
+      q: "Trạng thái OPEN của Circuit Breaker làm gì với request đến?",
+      options: [
+        "Chuyển request sang instance backup của service đích",
+        "Chặn request Fail-Fast ngay lập tức, không gọi network, kích hoạt Fallback",
+        "Queue request và xử lý khi service đích hồi phục sau wait-duration",
+        "Log request và trả về HTTP 503 mà không gọi Fallback method"
+      ],
+      answer: 1,
+      explanation: "OPEN = Fail-Fast: không thử gọi network (tiết kiệm thread), không chiếm tài nguyên, kích hoạt Fallback ngay. Sau wait-duration-in-open-state → HALF-OPEN để thăm dò."
+    },
+    {
+      level: "Dễ",
+      q: "Điều kiện nào làm Circuit Breaker chuyển từ CLOSED sang OPEN?",
+      options: [
+        "Khi số lượng request/giây vượt quá giá trị rate-limit-threshold đã cấu hình",
+        "Khi response time trung bình vượt quá slow-call-duration-threshold milli-giây",
+        "Khi tỷ lệ lỗi trong sliding window vượt ngưỡng failure-rate-threshold",
+        "Khi CPU của service đích vượt quá 90% theo số liệu từ Actuator health endpoint"
+      ],
+      answer: 2,
+      explanation: "CLOSED → OPEN: failure_rate > failure_rate_threshold. Ví dụ: sliding-window=10, threshold=50% → 5/10 request fail → ngắt mạch. Ghi kết quả vào sliding window sau mỗi call."
+    },
+    {
+      level: "Dễ",
+      q: "Trạng thái HALF-OPEN làm gì để quyết định chuyển CLOSED hay OPEN lại?",
+      options: [
+        "Cho phép tất cả request đi qua trong 30 giây rồi tính tỷ lệ lỗi",
+        "Gửi 1 health-check request tới /actuator/health của service đích mỗi 10 giây",
+        "Cho phép số lượng giới hạn request (permitted-number) đi qua để kiểm tra; nếu OK → CLOSED, nếu fail → OPEN",
+        "Thăm dò bằng cách gọi Fallback method và xem kết quả có hợp lệ không"
+      ],
+      answer: 2,
+      explanation: "HALF-OPEN: cho permitted-number-of-calls (ví dụ 3) đi qua thật sự. Nếu pass threshold → CLOSED. Nếu fail → OPEN lại ngay. Mọi request khác trong lúc HALF-OPEN vẫn bị block."
+    },
+    {
+      level: "Dễ",
+      q: "sliding-window-size: 10 kết hợp failure-rate-threshold: 50 có nghĩa gì?",
+      options: [
+        "Chờ 10 giây rồi kiểm tra tỷ lệ lỗi 50% trong khoảng thời gian đó",
+        "Trong 10 call gần nhất, nếu >= 5 call (50%) bị lỗi → Circuit Breaker OPEN",
+        "50% trong số 10 request đầu tiên được phép fail trước khi bắt đầu ngắt mạch",
+        "10 lần retry mỗi lần, failure threshold là 50 lần trước khi OPEN"
+      ],
+      answer: 1,
+      explanation: "Sliding window: lưu 10 call gần nhất (COUNT_BASED). Tính failure rate = số call fail / 10. Nếu ≥50% (tức ≥5 fail) → OPEN. Window trượt: call thứ 11 đẩy call thứ 1 ra."
+    },
+    {
+      level: "Dễ",
+      q: "Fallback method trong @CircuitBreaker cần tuân thủ điều kiện gì đặc biệt nhất?",
+      options: [
+        "Phải là static method và đặt trong class riêng biệt ngoài service class",
+        "Phải có tên bắt đầu bằng 'fallback' và return type là ResponseEntity<T>",
+        "Phải cùng return type, cùng params method gốc + thêm Throwable cuối cùng, cùng class",
+        "Phải là public method và annotate thêm @Bean để Spring inject được vào AOP proxy"
+      ],
+      answer: 2,
+      explanation: "4 quy tắc bắt buộc: (1) Return type giống method gốc, (2) Các tham số giống nguyên theo thứ tự, (3) Thêm Throwable/Exception ở cuối, (4) Cùng class với method @CircuitBreaker. Vi phạm → runtime IllegalStateException."
+    },
+    {
+      level: "Dễ",
+      q: "Dependency nào bắt buộc phải có để annotation @CircuitBreaker hoạt động? Tại sao?",
+      options: [
+        "spring-boot-starter-web vì @CircuitBreaker chỉ hoạt động trong HTTP request context",
+        "spring-boot-starter-aop vì @CircuitBreaker dùng Spring AOP proxy để intercept method call",
+        "spring-boot-starter-data-jpa vì Circuit Breaker cần lưu state vào database",
+        "spring-cloud-starter-netflix-hystrix là phiên bản cũ nhưng bắt buộc phải có"
+      ],
+      answer: 1,
+      explanation: "QUAN TRỌNG: @CircuitBreaker, @Retry, @Bulkhead dùng AspectJ AOP. Thiếu spring-boot-starter-aop → không tạo được CGLIB proxy → annotation bị bỏ qua hoàn toàn, code chạy như không có gì – silent fail."
+    },
+    {
+      level: "Dễ",
+      q: "Bulkhead Pattern trong Resilience4j giải quyết vấn đề gì?",
+      options: [
+        "Nén dữ liệu trước khi gọi service đích để giảm băng thông mạng",
+        "Ngăn 1 service chiếm hết Thread Pool, bảo vệ tài nguyên như vách ngăn tàu thủy",
+        "Tự động scale thêm instance khi số concurrent call vượt ngưỡng cấu hình",
+        "Queue toàn bộ request khi service đích bận và xử lý dần theo thứ tự FIFO"
+      ],
+      answer: 1,
+      explanation: "Bulkhead = vách ngăn tàu. Cấp Thread Pool/Semaphore riêng cho từng integration. Service A slow chỉ cạn pool của A, không ảnh hưởng pool của B, C. Resilience4j: Semaphore (nhẹ, sync) và ThreadPool (cô lập, async)."
+    },
+    {
+      level: "Trung bình",
+      q: "Phân biệt record-exceptions vs ignore-exceptions trong Resilience4j Circuit Breaker config:",
+      options: [
+        "record-exceptions lưu exception vào DB; ignore-exceptions ghi vào log file",
+        "record-exceptions tính vào failure rate (lỗi kỹ thuật: IOException, TimeoutException); ignore-exceptions bỏ qua không tính (lỗi nghiệp vụ: NotFoundException, ValidationException)",
+        "record-exceptions chỉ áp dụng với Retry; ignore-exceptions chỉ áp dụng với Circuit Breaker",
+        "record-exceptions retry lại exception đó; ignore-exceptions bỏ qua và trả null cho caller"
+      ],
+      answer: 1,
+      explanation: "Ví dụ: nếu không ignore BusinessException (400), user nhập sai password 10 lần → failure rate 100% → Circuit Breaker OPEN → block toàn bộ login service! Phải ignore business exceptions để tránh false positive."
+    },
+    {
+      level: "Trung bình",
+      q: "Retry Pattern có thể gây ra 'Retry Storm' như thế nào?",
+      options: [
+        "Retry Storm xảy ra khi retry interval quá ngắn làm CPU overload trong service đang retry",
+        "1000 clients retry 3 lần mỗi người → 3000 requests dội vào service đang quá tải. Giải pháp: Exponential Backoff + Jitter, Circuit Breaker OPEN phải dừng Retry",
+        "Retry Storm xảy ra khi Kafka consumer group rebalance liên tục do retry làm consumer chết",
+        "Retry Storm là vấn đề của RabbitMQ, không xảy ra với Kafka hay REST HTTP call"
+      ],
+      answer: 1,
+      explanation: "1000 clients × 3 retries = 3000 requests dội vào service đang quá tải → worse. Giải pháp: (1) Exponential Backoff (1s→2s→4s), (2) Jitter (random offset), (3) CB OPEN → block cả Retry ngay lập tức."
+    },
+    {
+      level: "Trung bình",
+      q: "wait-duration-in-open-state: 10s có nghĩa là gì trong Circuit Breaker config?",
+      options: [
+        "Timeout 10 giây cho mỗi request gọi sang service đích trước khi tính là failure",
+        "Sau khi OPEN, chờ đúng 10 giây rồi tự động chuyển sang HALF-OPEN để thăm dò service",
+        "Khoảng thời gian 10 giây giữa mỗi lần retry trong @Retry configuration",
+        "TTL 10 giây cho cache kết quả của Fallback method để tránh gọi fallback quá thường xuyên"
+      ],
+      answer: 1,
+      explanation: "OPEN: chặn tất cả, service nghỉ ngơi. Sau wait-duration (10s) → tự động HALF-OPEN → cho permitted-calls đi qua test. Nếu OK → CLOSED. Nếu fail → OPEN lại và chờ thêm 10s nữa."
+    },
+    {
+      level: "Trung bình",
+      q: "RateLimiter khác Circuit Breaker như thế nào? Use case của từng loại?",
+      options: [
+        "Hai thứ giống nhau, chỉ khác tên. Dùng được thay thế cho nhau hoàn toàn",
+        "RateLimiter dùng cho database; Circuit Breaker dùng cho HTTP calls bên ngoài",
+        "RateLimiter giới hạn số request/thời gian (chống lạm dụng); Circuit Breaker ngắt mạch khi failure rate cao (bảo vệ service bị lỗi)",
+        "RateLimiter xử lý trước Circuit Breaker trong Resilience4j annotation chain"
+      ],
+      answer: 2,
+      explanation: "RateLimiter: 100 req/s → vượt → 429. Dùng cho API quota, chống DDoS. Circuit Breaker: failure_rate>50% → OPEN. Dùng để bảo vệ downstream service bị lỗi, tránh cascade failure. Khác nhau về mục đích hoàn toàn."
+    },
+    {
+      level: "Trung bình",
+      q: "permitted-number-of-calls-in-half-open-state: 3 có ý nghĩa gì?",
+      options: [
+        "Chỉ cho phép tối đa 3 consumer group đọc từ 1 partition khi Circuit Breaker đang HALF-OPEN",
+        "Trong HALF-OPEN, chỉ 3 request đầu tiên được phép đi qua thăm dò; các request khác vẫn bị block",
+        "Circuit Breaker cần ít nhất 3 request thành công liên tiếp mới chuyển về CLOSED",
+        "3 giây timeout cho mỗi trial call trong HALF-OPEN state trước khi tính là failure"
+      ],
+      answer: 1,
+      explanation: "Chỉ 3 'trial calls' được phép qua trong HALF-OPEN. Mọi request khác vẫn bị Fail-Fast. Sau khi có đủ 3 kết quả → tính failure rate → CLOSED (thành công) hoặc OPEN lại (thất bại)."
+    },
+    {
+      level: "Khó",
+      q: "Tại sao thiếu spring-boot-starter-aop làm @CircuitBreaker fail silently mà không có lỗi?",
+      options: [
+        "Vì Spring Security chặn tất cả AOP interceptor không có trong whitelist",
+        "Vì không có AOP Proxy → CircuitBreakerAspect không được tạo → method gốc được gọi trực tiếp không qua interceptor → annotation bị bỏ qua trong im lặng",
+        "Vì classpath scan bỏ qua class có @CircuitBreaker khi thiếu AOP dependency",
+        "Vì @CircuitBreaker không tương thích với @SpringBootApplication khi thiếu AOP"
+      ],
+      answer: 1,
+      explanation: "@CircuitBreaker là annotation marker cho AOP Aspect. Thiếu AOP → không tạo được CGLIB proxy wrapping method → method được gọi trực tiếp như method thường. Không có circuit breaker logic nào chạy, không exception, không warning."
+    },
+    {
+      level: "Khó",
+      q: "Semaphore Bulkhead và ThreadPool Bulkhead trong Resilience4j: khi nào chọn loại nào?",
+      options: [
+        "Semaphore cho HTTP calls; ThreadPool cho Database calls. Không thể dùng ngược lại",
+        "Semaphore (sync, nhẹ hơn, cùng thread caller) cho I/O ngắn; ThreadPool (async, cô lập hoàn toàn bằng pool riêng) cho long-running I/O",
+        "Semaphore cho development; ThreadPool cho production. Chỉ ThreadPool đủ cô lập",
+        "Chọn ngẫu nhiên, hiệu năng hai loại không khác nhau đáng kể trong thực tế"
+      ],
+      answer: 1,
+      explanation: "Semaphore: dùng biến đếm, cùng thread caller, nhẹ. ThreadPool: thread pool + queue riêng biệt, CompletableFuture, truly isolated. ThreadPool tốt cho long I/O nhưng cần tuning pool size tránh tạo quá nhiều thread."
+    },
+    {
+      level: "Khó",
+      q: "Làm thế nào monitor Circuit Breaker trong production? Stack công cụ phổ biến nhất?",
+      options: [
+        "Đọc log file của service và grep từ khóa 'CIRCUIT_OPEN' để phát hiện sự cố",
+        "Gọi trực tiếp vào Resilience4j CircuitBreakerRegistry bean trong code để check state",
+        "Spring Actuator /health + /metrics → Prometheus scrape → Grafana dashboard. Alert khi state=OPEN qua Prometheus AlertManager",
+        "Chỉ dùng được trong Spring Boot DevTools mode, production không hỗ trợ monitoring"
+      ],
+      answer: 2,
+      explanation: "Stack: (1) Actuator expose: management.health.circuitbreakers.enabled=true, (2) Prometheus: /actuator/prometheus, (3) Grafana dashboard với metric resilience4j.circuitbreaker.state, (4) AlertManager alert khi state=OPEN."
+    },
+    {
+      level: "Khó",
+      q: "Nếu Fallback method throw exception, điều gì xảy ra? Fallback nên được thiết kế như thế nào?",
+      options: [
+        "Circuit Breaker tính exception của Fallback vào failure rate và có thể OPEN lại",
+        "Exception của Fallback được bắt, ghi log và trả null tự động không ảnh hưởng gì",
+        "Exception của Fallback propagate lên caller. Fallback không tính vào failure rate. Fallback phải cực kỳ đơn giản: trả default value, đọc cache – tuyệt đối không gọi external service",
+        "Circuit Breaker retry Fallback 3 lần trước khi propagate exception lên caller"
+      ],
+      answer: 2,
+      explanation: "Fallback fail → exception propagate lên caller (như không có Fallback). Fallback KHÔNG tính vào failure rate. Fallback phải: không fail, không gọi network, không gọi DB chậm. Chỉ: trả hardcoded default, đọc local cache, empty collection."
+    }
+  ];
+  </script>
+  <script src="quiz-engine.js"></script>
+</body>
+</html>
